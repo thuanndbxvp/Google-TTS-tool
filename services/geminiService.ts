@@ -2,9 +2,12 @@
 import { GoogleGenAI, Modality } from "@google/genai";
 import { decode, createWavBlob } from "../utils/audioUtils";
 
-export async function generateSpeech(text: string, voice: string): Promise<string> {
+export async function generateSpeech(text: string, voice: string, apiKey: string): Promise<string> {
+  if (!apiKey) {
+    throw new Error("API key is missing.");
+  }
   // Initialize the AI client inside the function to ensure the latest API key is used.
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+  const ai = new GoogleGenAI({ apiKey });
 
   if (!text.trim()) {
     // Return a silent audio URL for empty strings to avoid API errors

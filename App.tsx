@@ -8,18 +8,8 @@ import { AudioPlayer } from './components/AudioPlayer';
 import { SpinnerIcon } from './components/icons/SpinnerIcon';
 import { KeyIcon } from './components/icons/KeyIcon';
 import { ZipIcon } from './components/icons/ZipIcon';
+import { ApiKeyModal } from './components/ApiKeyModal';
 
-declare global {
-  interface AIStudio {
-    hasSelectedApiKey: () => Promise<boolean>;
-    openSelectKey: () => Promise<void>;
-  }
-
-  interface Window {
-    // FIX: Make aistudio optional to match environment declarations and prevent type errors.
-    aistudio?: AIStudio;
-  }
-}
 
 const voiceOptions = [
   { id: 'Kore', name: 'Female Voice 1 (Calm)' },
@@ -31,7 +21,8 @@ const voiceOptions = [
 
 
 const App: React.FC = () => {
-  const [isKeyAvailable, setIsKeyAvailable] = useState<boolean>(false);
+  const [apiKey, setApiKey] = useState<string>('');
+  const [isKeyModalOpen, setIsKeyModalOpen] = useState<boolean>(false);
   const [textFileContent, setTextFileContent] = useState<string>('');
   const [selectedVoice, setSelectedVoice] = useState<string>('Kore');
   const [audioResults, setAudioResults] = useState<AudioResult[]>([]);
@@ -39,20 +30,14 @@ const App: React.FC = () => {
   const [isZipping, setIsZipping] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const checkApiKey = useCallback(async () => {
-    try {
-      // FIX: Check if window.aistudio exists before using it.
-      const hasKey = window.aistudio ? await window.aistudio.hasSelectedApiKey() : false;
-      setIsKeyAvailable(hasKey);
-    } catch (e) {
-      console.error("Error checking for API key:", e);
-      setIsKeyAvailable(false);
-    }
-  }, []);
+  const isKeyAvailable = !!apiKey;
 
   useEffect(() => {
-    checkApiKey();
-  }, [checkApiKey]);
+    const storedKey = localStorage.getItem('gemini-api-key');
+    if (storedKey) {
+      setApiKey(storedKey);
+    }
+  }, []);
 
 
   // Clear previous audio URLs to prevent memory leaks
@@ -62,21 +47,19 @@ const App: React.FC = () => {
     };
   }, [audioResults]);
 
-  const handleSelectKey = async () => {
-    try {
-      // FIX: Check if window.aistudio exists and optimistically update key status to avoid race conditions.
-      if (window.aistudio) {
-        await window.aistudio.openSelectKey();
-        // Per guidelines, assume key selection is successful to avoid race conditions with `hasSelectedApiKey`.
-        setIsKeyAvailable(true);
-      } else {
-        console.error("aistudio context not available");
-        setError("API Key selection is not available in this environment.");
-      }
-    } catch(e) {
-      console.error("Could not open API key selection:", e);
-      setError("An error occurred while trying to select an API key.");
+  const handleSelectKey = () => {
+    setIsKeyModalOpen(true);
+  };
+
+  const handleSaveKey = (newKey: string) => {
+    const trimmedKey = newKey.trim();
+    setApiKey(trimmedKey);
+    if (trimmedKey) {
+      localStorage.setItem('gemini-api-key', trimmedKey);
+    } else {
+      localStorage.removeItem('gemini-api-key');
     }
+    setIsKeyModalOpen(false);
   };
 
   const handleFileSelect = useCallback((content: string, fileName: string) => {
@@ -86,8 +69,9 @@ const App: React.FC = () => {
   }, []);
 
   const handleGenerateAudio = async () => {
-    if (!isKeyAvailable) {
+    if (!apiKey) {
       setError('Please set your API Key using the button in the top-right corner before generating audio.');
+      setIsKeyModalOpen(true);
       return;
     }
 
@@ -111,19 +95,17 @@ const App: React.FC = () => {
     try {
       const results = await Promise.all(
         paragraphs.map(async (p, index) => {
-          const audioUrl = await generateSpeech(p, selectedVoice);
+          const audioUrl = await generateSpeech(p, selectedVoice, apiKey);
           return { id: index, text: p, audioUrl };
         })
       );
       setAudioResults(results);
     } catch (err) {
       console.error('Error generating audio:', err);
-      // FIX: Check for "Requested entity was not found" error to reset API key state, as per guidelines.
-      if (err instanceof Error && err.message.includes('Requested entity was not found')) {
-        setError('API Key is invalid. Please select a valid key.');
-        setIsKeyAvailable(false);
+      if (err instanceof Error && (err.message.includes('API key not valid') || err.message.includes('API key is invalid'))) {
+        setError('Your API Key appears to be invalid. Please open the API Key manager and enter a valid key.');
       } else {
-        setError('Failed to generate audio. This might be due to an invalid API key. Please try selecting your key again.');
+        setError('Failed to generate audio. Please check your API key and network connection.');
       }
     } finally {
       setIsLoading(false);
@@ -167,6 +149,12 @@ const App: React.FC = () => {
   
   return (
     <div className="min-h-screen bg-slate-900 text-slate-200 font-sans flex flex-col">
+       <ApiKeyModal
+        isOpen={isKeyModalOpen}
+        onClose={() => setIsKeyModalOpen(false)}
+        onSave={handleSaveKey}
+        currentKey={apiKey}
+      />
       <header className="bg-slate-800/50 backdrop-blur-sm p-4 border-b border-slate-700 shadow-lg flex items-center justify-between sticky top-0 z-10">
         <div className="text-center flex-grow pl-16">
           <h1 className="text-2xl md:text-3xl font-bold text-center text-cyan-400">

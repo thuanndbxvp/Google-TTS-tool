@@ -1,0 +1,5 @@
+{
+  "name": "Text File to Speech Converter",
+  "description": "An application that reads a .txt file, splits the content by paragraphs, and uses the Gemini API to generate an audio clip for each paragraph.",
+  "requestFramePermissions": []
+}

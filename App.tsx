@@ -2,7 +2,7 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import JSZip from 'jszip';
 import { generateSpeech } from './services/geminiService';
-import { AudioResult } from './types';
+import { AudioResult, ApiKey } from './types';
 import { FileUploader } from './components/FileUploader';
 import { AudioPlayer } from './components/AudioPlayer';
 import { SpinnerIcon } from './components/icons/SpinnerIcon';
@@ -10,18 +10,21 @@ import { KeyIcon } from './components/icons/KeyIcon';
 import { ZipIcon } from './components/icons/ZipIcon';
 import { ApiKeyModal } from './components/ApiKeyModal';
 
-
 const voiceOptions = [
-  { id: 'Kore', name: 'Female Voice 1 (Calm)' },
-  { id: 'Zephyr', name: 'Female Voice 2 (Friendly)' },
-  { id: 'Puck', name: 'Male Voice 1 (Energetic)' },
-  { id: 'Charon', name: 'Male Voice 2 (Deep)' },
-  { id: 'Fenrir', name: 'Male Voice 3 (Authoritative)' },
+  { id: 'Kore', name: 'Giọng Nữ 1 (Trầm tĩnh)' },
+  { id: 'Zephyr', name: 'Giọng Nữ 2 (Thân thiện)' },
+  { id: 'Puck', name: 'Giọng Nam 1 (Năng lượng)' },
+  { id: 'Charon', name: 'Giọng Nam 2 (Trầm)' },
+  { id: 'Fenrir', name: 'Giọng Nam 3 (Uy quyền)' },
 ];
 
+interface ApiKeyState {
+  keys: ApiKey[];
+  activeKeyId: number | null;
+}
 
 const App: React.FC = () => {
-  const [apiKey, setApiKey] = useState<string>('');
+  const [apiKeyState, setApiKeyState] = useState<ApiKeyState>({ keys: [], activeKeyId: null });
   const [isKeyModalOpen, setIsKeyModalOpen] = useState<boolean>(false);
   const [textFileContent, setTextFileContent] = useState<string>('');
   const [selectedVoice, setSelectedVoice] = useState<string>('Kore');
@@ -30,38 +33,64 @@ const App: React.FC = () => {
   const [isZipping, setIsZipping] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  const isKeyAvailable = !!apiKey;
+  const isKeyAvailable = !!apiKeyState.activeKeyId;
+  const activeApiKey = apiKeyState.keys.find(k => k.id === apiKeyState.activeKeyId)?.key || null;
 
   useEffect(() => {
-    const storedKey = localStorage.getItem('gemini-api-key');
-    if (storedKey) {
-      setApiKey(storedKey);
+    try {
+      const storedState = localStorage.getItem('gemini-api-keys-manager');
+      if (storedState) {
+        const parsedState: ApiKeyState = JSON.parse(storedState);
+        if (parsedState.keys && Array.isArray(parsedState.keys)) {
+          setApiKeyState(parsedState);
+        }
+      }
+    } catch (e) {
+      console.error("Failed to parse API key state from localStorage", e);
+      // Clear corrupted storage
+      localStorage.removeItem('gemini-api-keys-manager');
     }
   }, []);
 
+  const saveApiKeyState = (newState: ApiKeyState) => {
+    localStorage.setItem('gemini-api-keys-manager', JSON.stringify(newState));
+    setApiKeyState(newState);
+  };
 
-  // Clear previous audio URLs to prevent memory leaks
   useEffect(() => {
     return () => {
       audioResults.forEach(result => URL.revokeObjectURL(result.audioUrl));
     };
   }, [audioResults]);
 
-  const handleSelectKey = () => {
-    setIsKeyModalOpen(true);
-  };
-
-  const handleSaveKey = (newKey: string) => {
-    const trimmedKey = newKey.trim();
-    setApiKey(trimmedKey);
-    if (trimmedKey) {
-      localStorage.setItem('gemini-api-key', trimmedKey);
-    } else {
-      localStorage.removeItem('gemini-api-key');
+  const handleAddKey = (key: string) => {
+    const trimmedKey = key.trim();
+    if (!trimmedKey || apiKeyState.keys.some(k => k.key === trimmedKey)) {
+      // Prevent adding empty or duplicate keys
+      return;
     }
-    setIsKeyModalOpen(false);
+    const newKey: ApiKey = { id: Date.now(), key: trimmedKey };
+    const newKeys = [...apiKeyState.keys, newKey];
+    // If it's the first key, make it active
+    const newActiveId = apiKeyState.activeKeyId === null ? newKey.id : apiKeyState.activeKeyId;
+    saveApiKeyState({ keys: newKeys, activeKeyId: newActiveId });
   };
 
+  const handleDeleteKey = (id: number) => {
+    const newKeys = apiKeyState.keys.filter(k => k.id !== id);
+    let newActiveId = apiKeyState.activeKeyId;
+    // If the deleted key was the active one, find a new active key
+    if (id === apiKeyState.activeKeyId) {
+      newActiveId = newKeys.length > 0 ? newKeys[0].id : null;
+    }
+    saveApiKeyState({ keys: newKeys, activeKeyId: newActiveId });
+  };
+
+  const handleSetActiveKey = (id: number) => {
+    saveApiKeyState({ ...apiKeyState, activeKeyId: id });
+    setIsKeyModalOpen(false); // Close modal on selection for better UX
+  };
+  
   const handleFileSelect = useCallback((content: string, fileName: string) => {
     setTextFileContent(content);
     setAudioResults([]);
@@ -69,25 +98,25 @@ const App: React.FC = () => {
   }, []);
 
   const handleGenerateAudio = async () => {
-    if (!apiKey) {
-      setError('Please set your API Key using the button in the top-right corner before generating audio.');
+    if (!activeApiKey) {
+      setError('Vui lòng đặt API Key đang hoạt động bằng nút ở góc trên bên phải trước khi tạo âm thanh.');
       setIsKeyModalOpen(true);
       return;
     }
 
     if (!textFileContent) {
-      setError('Please upload a text file or enter some text first.');
+      setError('Vui lòng tải lên một tệp văn bản hoặc nhập văn bản trước.');
       return;
     }
 
     setIsLoading(true);
     setError(null);
-    setAudioResults([]); // Clear previous results
+    setAudioResults([]);
 
     const paragraphs = textFileContent.split('\n').filter(p => p.trim() !== '');
 
     if (paragraphs.length === 0) {
-      setError('The text content is empty or contains no readable paragraphs.');
+      setError('Nội dung văn bản trống hoặc không chứa đoạn văn nào có thể đọc được.');
       setIsLoading(false);
       return;
     }
@@ -95,7 +124,7 @@ const App: React.FC = () => {
     try {
       const results = await Promise.all(
         paragraphs.map(async (p, index) => {
-          const audioUrl = await generateSpeech(p, selectedVoice, apiKey);
+          const audioUrl = await generateSpeech(p, selectedVoice, activeApiKey);
           return { id: index, text: p, audioUrl };
         })
       );
@@ -103,9 +132,9 @@ const App: React.FC = () => {
     } catch (err) {
       console.error('Error generating audio:', err);
       if (err instanceof Error && (err.message.includes('API key not valid') || err.message.includes('API key is invalid'))) {
-        setError('Your API Key appears to be invalid. Please open the API Key manager and enter a valid key.');
+        setError('API Key đang hoạt động của bạn có vẻ không hợp lệ. Vui lòng mở trình quản lý API Key và chọn hoặc thêm một key hợp lệ.');
       } else {
-        setError('Failed to generate audio. Please check your API key and network connection.');
+        setError('Tạo âm thanh thất bại. Vui lòng kiểm tra API key đang hoạt động và kết nối mạng của bạn.');
       }
     } finally {
       setIsLoading(false);
@@ -141,7 +170,7 @@ const App: React.FC = () => {
   
     } catch (err) {
       console.error('Failed to create zip file:', err);
-      setError('Could not create the zip file for download.');
+      setError('Không thể tạo tệp zip để tải xuống.');
     } finally {
       setIsZipping(false);
     }
@@ -152,24 +181,27 @@ const App: React.FC = () => {
        <ApiKeyModal
         isOpen={isKeyModalOpen}
         onClose={() => setIsKeyModalOpen(false)}
-        onSave={handleSaveKey}
-        currentKey={apiKey}
+        apiKeys={apiKeyState.keys}
+        activeKeyId={apiKeyState.activeKeyId}
+        onAddKey={handleAddKey}
+        onDeleteKey={handleDeleteKey}
+        onSetActiveKey={handleSetActiveKey}
       />
       <header className="bg-slate-800/50 backdrop-blur-sm p-4 border-b border-slate-700 shadow-lg flex items-center justify-between sticky top-0 z-10">
         <div className="text-center flex-grow pl-16">
           <h1 className="text-2xl md:text-3xl font-bold text-center text-cyan-400">
-            Text File to Speech Converter
+            Chuyển đổi Tệp Văn bản sang Giọng nói
           </h1>
-          <p className="text-center text-slate-400 mt-1">Powered by Gemini TTS</p>
+          <p className="text-center text-slate-400 mt-1">Cung cấp bởi Gemini TTS</p>
         </div>
         <button
-          onClick={handleSelectKey}
+          onClick={() => setIsKeyModalOpen(true)}
           className={`flex items-center space-x-2 px-3 py-2 rounded-lg transition-all duration-200 border ${
             isKeyAvailable
               ? 'border-green-500/50 bg-green-500/10 hover:bg-green-500/20 text-green-300'
               : 'border-yellow-500/50 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-300'
           }`}
-          title={isKeyAvailable ? "API Key is set" : "Set your API Key"}
+          title={isKeyAvailable ? "Quản lý API Keys (Đang hoạt động)" : "Thiết lập API Key của bạn"}
         >
           <KeyIcon />
           <span className="hidden sm:inline">API Key</span>
@@ -180,30 +212,30 @@ const App: React.FC = () => {
         {/* Control Panel */}
         <div className="bg-slate-800 rounded-xl shadow-2xl p-6 flex flex-col space-y-6 h-fit">
           <div>
-            <h2 className="text-xl font-semibold text-white mb-3">1. Provide Text</h2>
+            <h2 className="text-xl font-semibold text-white mb-3">1. Cung cấp Văn bản</h2>
             <FileUploader onFileSelect={handleFileSelect} disabled={isLoading} />
              <div className="relative flex py-4 items-center">
               <div className="flex-grow border-t border-slate-600"></div>
-              <span className="flex-shrink mx-4 text-slate-500">OR</span>
+              <span className="flex-shrink mx-4 text-slate-500">HOẶC</span>
               <div className="flex-grow border-t border-slate-600"></div>
             </div>
             <textarea
               value={textFileContent}
               onChange={(e) => setTextFileContent(e.target.value)}
               className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-colors duration-200 min-h-[200px]"
-              placeholder="Paste or type your text directly here..."
+              placeholder="Dán hoặc gõ văn bản của bạn trực tiếp vào đây..."
               disabled={isLoading}
             />
           </div>
           
           <div>
-            <h2 className="text-xl font-semibold text-white mb-3">2. Select a voice</h2>
+            <h2 className="text-xl font-semibold text-white mb-3">2. Chọn giọng đọc</h2>
             <select
               value={selectedVoice}
               onChange={(e) => setSelectedVoice(e.target.value)}
               disabled={isLoading}
               className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-colors duration-200"
-              aria-label="Select voice"
+              aria-label="Chọn giọng đọc"
             >
               {voiceOptions.map(voice => (
                 <option key={voice.id} value={voice.id}>{voice.name}</option>
@@ -212,7 +244,7 @@ const App: React.FC = () => {
           </div>
 
           <div>
-            <h2 className="text-xl font-semibold text-white mb-3">3. Generate audio</h2>
+            <h2 className="text-xl font-semibold text-white mb-3">3. Tạo âm thanh</h2>
              <button
               onClick={handleGenerateAudio}
               disabled={isLoading || !textFileContent}
@@ -221,9 +253,9 @@ const App: React.FC = () => {
               {isLoading ? (
                 <>
                   <SpinnerIcon />
-                  Generating...
+                  Đang tạo...
                 </>
-              ) : 'Generate Audio Clips'}
+              ) : 'Tạo Clip Âm thanh'}
             </button>
           </div>
         </div>
@@ -231,7 +263,7 @@ const App: React.FC = () => {
         {/* Results Panel */}
         <div className="bg-slate-800 rounded-xl shadow-2xl p-6">
           <div className="flex items-center justify-between mb-4 border-b border-slate-700 pb-3">
-            <h2 className="text-xl font-semibold text-white">Results</h2>
+            <h2 className="text-xl font-semibold text-white">Kết quả</h2>
             {audioResults.length > 0 && !isLoading && (
               <button
                 onClick={handleDownloadAll}
@@ -241,12 +273,12 @@ const App: React.FC = () => {
                 {isZipping ? (
                   <>
                     <SpinnerIcon />
-                    <span>Zipping...</span>
+                    <span>Đang nén...</span>
                   </>
                 ) : (
                   <>
                     <ZipIcon />
-                    <span>Download All (.zip)</span>
+                    <span>Tải Tất cả (.zip)</span>
                   </>
                 )}
               </button>
@@ -258,14 +290,14 @@ const App: React.FC = () => {
           {isLoading && (
              <div className="flex flex-col items-center justify-center text-slate-400 h-64">
                 <SpinnerIcon />
-                <p className="mt-4">Generating audio, please wait...</p>
-                <p className="text-sm text-slate-500">This may take a moment for longer texts.</p>
+                <p className="mt-4">Đang tạo âm thanh, vui lòng đợi...</p>
+                <p className="text-sm text-slate-500">Quá trình này có thể mất một lúc đối với các văn bản dài.</p>
             </div>
           )}
 
           {!isLoading && audioResults.length === 0 && !error && (
             <div className="flex items-center justify-center text-slate-500 h-64">
-              <p>Audio clips will appear here once generated.</p>
+              <p>Các clip âm thanh sẽ xuất hiện ở đây sau khi được tạo.</p>
             </div>
           )}
 

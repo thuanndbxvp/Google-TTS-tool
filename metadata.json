@@ -1,5 +1,5 @@
 {
-  "name": "Text File to Speech Converter",
-  "description": "An application that reads a .txt file, splits the content by paragraphs, and uses the Gemini API to generate an audio clip for each paragraph.",
+  "name": "Công cụ chuyển đổi tệp văn bản sang giọng nói",
+  "description": "Một ứng dụng đọc tệp .txt, chia nội dung theo từng đoạn và sử dụng Gemini API để tạo clip âm thanh cho mỗi đoạn.",
   "requestFramePermissions": []
 }

@@ -20,7 +20,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFileSelect, disabl
       };
       reader.readAsText(file);
     } else {
-      alert('Please select a valid .txt file.');
+      alert('Vui lòng chọn một tệp .txt hợp lệ.');
     }
   };
 
@@ -44,7 +44,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFileSelect, disabl
         className="w-full bg-slate-700 border-2 border-dashed border-slate-500 hover:border-cyan-400 hover:bg-slate-600 text-slate-300 font-semibold py-4 px-6 rounded-lg transition-colors duration-200 flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <UploadIcon />
-        <span>Click to select a .txt file</span>
+        <span>Nhấn để chọn một tệp .txt</span>
       </button>
     </div>
   );

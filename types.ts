@@ -4,3 +4,8 @@ export interface AudioResult {
   text: string;
   audioUrl: string;
 }
+
+export interface ApiKey {
+  id: number;
+  key: string;
+}

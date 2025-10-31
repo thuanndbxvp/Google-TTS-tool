@@ -19,16 +19,16 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ result }) => {
       <p className="text-slate-300 mb-3 text-sm italic">"{result.text}"</p>
       <div className="flex items-center justify-between">
         <audio controls src={result.audioUrl} className="w-full max-w-xs h-10">
-          Your browser does not support the audio element.
+          Trình duyệt của bạn không hỗ trợ phần tử âm thanh.
         </audio>
         <a
           href={result.audioUrl}
           download={`segment_${result.id + 1}.wav`}
           className="ml-4 flex items-center justify-center bg-cyan-700 hover:bg-cyan-600 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200 text-sm"
-          title="Download WAV"
+          title="Tải về file WAV"
         >
           <DownloadIcon />
-          <span>Download</span>
+          <span>Tải về</span>
         </a>
       </div>
     </div>

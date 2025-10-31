@@ -13,9 +13,13 @@ import { ApiKeyModal } from './components/ApiKeyModal';
 const voiceOptions = [
   { id: 'Kore', name: 'Giọng Nữ 1 (Trầm tĩnh)' },
   { id: 'Zephyr', name: 'Giọng Nữ 2 (Thân thiện)' },
+  { id: 'Luna', name: 'Giọng Nữ 3 (Trong trẻo)' },
+  { id: 'Aura', name: 'Giọng Nữ 4 (Mềm mại)' },
   { id: 'Puck', name: 'Giọng Nam 1 (Năng lượng)' },
   { id: 'Charon', name: 'Giọng Nam 2 (Trầm)' },
   { id: 'Fenrir', name: 'Giọng Nam 3 (Uy quyền)' },
+  { id: 'Orion', name: 'Giọng Nam 4 (Ấm áp)' },
+  { id: 'Sol', name: 'Giọng Nam 5 (Rõ ràng)' },
 ];
 
 interface ApiKeyState {

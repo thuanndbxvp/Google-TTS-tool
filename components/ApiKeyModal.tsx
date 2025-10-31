@@ -64,7 +64,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
         </button>
 
         <div className="p-2">
-            <h2 id="apiKeyModalTitle" className="text-2xl font-bold text-cyan-400 mb-2 text-center">Quản lý API Keys</h2>
+            <h2 id="apiKeyModalTitle" className="text-2xl font-bold text-[--color-primary-400] mb-2 text-center transition-colors">Quản lý API Keys</h2>
             <p className="text-slate-400 mb-6 text-center text-sm">
             Thêm, xóa và chọn API key để sử dụng. Các key của bạn được lưu trữ cục bộ.
             </p>
@@ -77,11 +77,11 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
                         type="password"
                         value={newKeyInput}
                         onChange={(e) => setNewKeyInput(e.target.value)}
-                        className="flex-grow w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-300 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-colors duration-200"
+                        className="flex-grow w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-300 hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors duration-200"
                         placeholder="Dán Google AI API Key của bạn..."
                         aria-label="Ô nhập API Key mới"
                     />
-                    <button onClick={handleAddClick} disabled={!newKeyInput.trim()} className="bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-600 text-white font-semibold px-4 py-2 rounded-lg transition-colors">
+                    <button onClick={handleAddClick} disabled={!newKeyInput.trim()} className="bg-[--color-primary-600] hover:bg-[--color-primary-500] disabled:bg-slate-600 text-white font-semibold px-4 py-2 rounded-lg transition-colors">
                         Thêm
                     </button>
                 </div>
@@ -93,7 +93,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
             <div className="space-y-2 max-h-64 overflow-y-auto pr-2">
             {apiKeys.length > 0 ? (
                 apiKeys.map((apiKey) => (
-                <div key={apiKey.id} className="bg-slate-700/50 p-3 rounded-lg flex items-center justify-between">
+                <div key={apiKey.id} className="bg-slate-700/50 p-3 rounded-lg flex items-center justify-between border-l-2 border-transparent transition-all duration-200 hover:border-l-[--color-primary-500] hover:bg-slate-700">
                     <div className="flex items-center">
                         <KeyIcon />
                         <span className="ml-3 font-mono text-slate-300">{maskApiKey(apiKey.key)}</span>
@@ -103,7 +103,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
                     </div>
                     <div className="flex items-center space-x-2">
                     {apiKey.id !== activeKeyId && (
-                        <button onClick={() => onSetActiveKey(apiKey.id)} className="text-cyan-400 hover:text-cyan-300 text-sm font-semibold transition-colors">
+                        <button onClick={() => onSetActiveKey(apiKey.id)} className="text-[--color-primary-400] hover:text-[--color-primary-300] text-sm font-semibold transition-colors">
                             Kích hoạt
                         </button>
                     )}
@@ -127,7 +127,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
             href="https://aistudio.google.com/app/apikey"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-cyan-500 hover:underline"
+            className="text-[--color-primary-500] hover:underline"
           >
             Google AI Studio
           </a>.

@@ -1,110 +1,136 @@
 
-import React, { useState, useCallback, useEffect } from 'react';
+
+
+import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { generateSpeech } from './services/geminiService';
-import { AudioResult, ApiKey } from './types';
+import { AudioResult } from './types';
 import { FileUploader } from './components/FileUploader';
 import { AudioPlayer } from './components/AudioPlayer';
 import { SpinnerIcon } from './components/icons/SpinnerIcon';
-import { KeyIcon } from './components/icons/KeyIcon';
 import { ZipIcon } from './components/icons/ZipIcon';
-import { ApiKeyModal } from './components/ApiKeyModal';
+import { ThemeSelector } from './components/ThemeSelector';
+import { themes, ThemeName } from './themes';
+import { PlayIcon } from './components/icons/PlayIcon';
+
 
 const voiceOptions = [
-  { id: 'Kore', name: 'Giọng Nữ 1 (Trầm tĩnh)' },
-  { id: 'Zephyr', name: 'Giọng Nữ 2 (Thân thiện)' },
-  { id: 'Luna', name: 'Giọng Nữ 3 (Trong trẻo)' },
-  { id: 'Aura', name: 'Giọng Nữ 4 (Mềm mại)' },
-  { id: 'Puck', name: 'Giọng Nam 1 (Năng lượng)' },
-  { id: 'Charon', name: 'Giọng Nam 2 (Trầm)' },
-  { id: 'Fenrir', name: 'Giọng Nam 3 (Uy quyền)' },
-  { id: 'Orion', name: 'Giọng Nam 4 (Ấm áp)' },
-  { id: 'Sol', name: 'Giọng Nam 5 (Rõ ràng)' },
+  // Giọng Nữ
+  { id: 'kore', name: 'Nữ: Kore (Trầm tĩnh)' },
+  { id: 'zephyr', name: 'Nữ: Zephyr (Thân thiện)' },
+  { id: 'pulcherrima', name: 'Nữ: Pulcherrima (Trong trẻo)' },
+  { id: 'vindemiatrix', name: 'Nữ: Vindemiatrix (Mềm mại)' },
+  // Giọng Nam
+  { id: 'puck', name: 'Nam: Puck (Năng lượng)' },
+  { id: 'charon', name: 'Nam: Charon (Trầm)' },
+  { id: 'fenrir', name: 'Nam: Fenrir (Uy quyền)' },
+  { id: 'orus', name: 'Nam: Orus (Ấm áp)' },
+  { id: 'rasalgethi', name: 'Nam: Rasalgethi (Rõ ràng)' },
 ];
 
-interface ApiKeyState {
-  keys: ApiKey[];
-  activeKeyId: number | null;
-}
-
 const App: React.FC = () => {
-  const [apiKeyState, setApiKeyState] = useState<ApiKeyState>({ keys: [], activeKeyId: null });
-  const [isKeyModalOpen, setIsKeyModalOpen] = useState<boolean>(false);
   const [textFileContent, setTextFileContent] = useState<string>('');
-  const [selectedVoice, setSelectedVoice] = useState<string>('Kore');
+  const [selectedVoice, setSelectedVoice] = useState<string>('kore');
+  const [selectedLanguage, setSelectedLanguage] = useState<string>('other'); // 'vietnam' or 'other'
+  const [selectedRegion, setSelectedRegion] = useState<string>('bac'); // 'bac', 'trung', 'nam'
   const [audioResults, setAudioResults] = useState<AudioResult[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [isPreviewLoading, setIsPreviewLoading] = useState<boolean>(false);
   const [isZipping, setIsZipping] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [theme, setTheme] = useState<ThemeName>('green');
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  const isKeyAvailable = !!apiKeyState.activeKeyId;
-  const activeApiKey = apiKeyState.keys.find(k => k.id === apiKeyState.activeKeyId)?.key || null;
 
-  useEffect(() => {
-    try {
-      const storedState = localStorage.getItem('gemini-api-keys-manager');
-      if (storedState) {
-        const parsedState: ApiKeyState = JSON.parse(storedState);
-        if (parsedState.keys && Array.isArray(parsedState.keys)) {
-          setApiKeyState(parsedState);
-        }
-      }
-    } catch (e) {
-      console.error("Failed to parse API key state from localStorage", e);
-      // Clear corrupted storage
-      localStorage.removeItem('gemini-api-keys-manager');
+   useEffect(() => {
+    const savedTheme = localStorage.getItem('app-theme');
+    // FIX: Add a type guard to safely handle themes from localStorage
+    if (savedTheme && Object.keys(themes).includes(savedTheme)) {
+      setTheme(savedTheme as ThemeName);
     }
   }, []);
 
-  const saveApiKeyState = (newState: ApiKeyState) => {
-    localStorage.setItem('gemini-api-keys-manager', JSON.stringify(newState));
-    setApiKeyState(newState);
-  };
+  useEffect(() => {
+    const root = document.documentElement;
+    const themeColors = themes[theme];
+    
+    for (const [key, value] of Object.entries(themeColors)) {
+      root.style.setProperty(`--color-primary-${key}`, value);
+    }
+    localStorage.setItem('app-theme', theme);
+  }, [theme]);
 
   useEffect(() => {
     return () => {
       audioResults.forEach(result => URL.revokeObjectURL(result.audioUrl));
+       if (previewAudioRef.current) {
+        URL.revokeObjectURL(previewAudioRef.current.src);
+      }
     };
   }, [audioResults]);
 
-  const handleAddKey = (key: string) => {
-    const trimmedKey = key.trim();
-    if (!trimmedKey || apiKeyState.keys.some(k => k.key === trimmedKey)) {
-      // Prevent adding empty or duplicate keys
-      return;
-    }
-    const newKey: ApiKey = { id: Date.now(), key: trimmedKey };
-    const newKeys = [...apiKeyState.keys, newKey];
-    // If it's the first key, make it active
-    const newActiveId = apiKeyState.activeKeyId === null ? newKey.id : apiKeyState.activeKeyId;
-    saveApiKeyState({ keys: newKeys, activeKeyId: newActiveId });
-  };
-
-  const handleDeleteKey = (id: number) => {
-    const newKeys = apiKeyState.keys.filter(k => k.id !== id);
-    let newActiveId = apiKeyState.activeKeyId;
-    // If the deleted key was the active one, find a new active key
-    if (id === apiKeyState.activeKeyId) {
-      newActiveId = newKeys.length > 0 ? newKeys[0].id : null;
-    }
-    saveApiKeyState({ keys: newKeys, activeKeyId: newActiveId });
-  };
-
-  const handleSetActiveKey = (id: number) => {
-    saveApiKeyState({ ...apiKeyState, activeKeyId: id });
-    setIsKeyModalOpen(false); // Close modal on selection for better UX
-  };
-  
   const handleFileSelect = useCallback((content: string, fileName: string) => {
     setTextFileContent(content);
     setAudioResults([]);
     setError(null);
   }, []);
 
+  const handlePreviewVoice = async () => {
+    if (isLoading || isPreviewLoading) return;
+  
+    // Stop any currently playing preview
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause();
+      URL.revokeObjectURL(previewAudioRef.current.src);
+      previewAudioRef.current = null;
+    }
+  
+    setIsPreviewLoading(true);
+    setError(null);
+  
+    // A neutral, friendly sentence for previewing
+    const sampleText = "Xin chào, đây là bản xem trước giọng nói của tôi.";
+    
+    try {
+      const audioUrl = await generateSpeech(sampleText, selectedVoice);
+      const audio = new Audio(audioUrl);
+      previewAudioRef.current = audio;
+      
+      const playPromise = audio.play();
+      if (playPromise !== undefined) {
+        playPromise.catch(error => {
+          console.error("Audio playback failed:", error);
+          setError("Không thể tự động phát âm thanh xem trước. Vui lòng kiểm tra cài đặt trình duyệt của bạn.");
+          URL.revokeObjectURL(audioUrl);
+          setIsPreviewLoading(false);
+        });
+      }
+  
+      audio.onended = () => {
+        URL.revokeObjectURL(audioUrl);
+        setIsPreviewLoading(false);
+        previewAudioRef.current = null;
+      };
+      audio.onerror = () => {
+           URL.revokeObjectURL(audioUrl);
+           setError('Không thể phát tệp âm thanh xem trước.');
+           setIsPreviewLoading(false);
+           previewAudioRef.current = null;
+      }
+    } catch (err) {
+      console.error('Error generating preview audio:', err);
+      if (err instanceof Error) {
+        setError(`Lỗi khi tạo bản xem trước: ${err.message}`);
+      } else {
+        setError('Không thể tạo âm thanh xem trước.');
+      }
+      setIsPreviewLoading(false);
+    }
+  };
+
   const handleGenerateAudio = async () => {
-    if (!activeApiKey) {
-      setError('Vui lòng đặt API Key đang hoạt động bằng nút ở góc trên bên phải trước khi tạo âm thanh.');
-      setIsKeyModalOpen(true);
+    if (!process.env.API_KEY) {
+      setError('API Key is not configured. Please ensure the API_KEY environment variable is set.');
       return;
     }
 
@@ -117,6 +143,19 @@ const App: React.FC = () => {
     setError(null);
     setAudioResults([]);
 
+    const getRegionInstruction = (region: string, language: string): string => {
+      if (language !== 'vietnam') {
+        // Add a neutral instruction to prevent the API from skipping the first paragraph.
+        return 'Hãy đọc đoạn văn sau: ';
+      }
+      switch (region) {
+        case 'bac': return 'Nói bằng giọng miền Bắc: ';
+        case 'trung': return 'Nói bằng giọng miền Trung: ';
+        case 'nam': return 'Nói bằng giọng miền Nam: ';
+        default: return '';
+      }
+    };
+    const instruction = getRegionInstruction(selectedRegion, selectedLanguage);
     const paragraphs = textFileContent.split('\n').filter(p => p.trim() !== '');
 
     if (paragraphs.length === 0) {
@@ -128,17 +167,24 @@ const App: React.FC = () => {
     try {
       const results = await Promise.all(
         paragraphs.map(async (p, index) => {
-          const audioUrl = await generateSpeech(p, selectedVoice, activeApiKey);
+          const textWithInstruction = `${instruction}${p}`;
+          const audioUrl = await generateSpeech(textWithInstruction, selectedVoice);
           return { id: index, text: p, audioUrl };
         })
       );
       setAudioResults(results);
     } catch (err) {
       console.error('Error generating audio:', err);
-      if (err instanceof Error && (err.message.includes('API key not valid') || err.message.includes('API key is invalid'))) {
-        setError('API Key đang hoạt động của bạn có vẻ không hợp lệ. Vui lòng mở trình quản lý API Key và chọn hoặc thêm một key hợp lệ.');
+      if (err instanceof Error) {
+        if (err.message.includes('API key not valid') || err.message.includes('API key is invalid') || err.message.includes('permission to access')) {
+          setError('API Key của bạn có vẻ không hợp lệ hoặc không có quyền. Vui lòng kiểm tra lại environment variable.');
+        } else if (err.message.includes('is not supported')) {
+          setError(`Lỗi API: ${err.message}. Giọng đọc được chọn có thể không hợp lệ. Vui lòng thử một giọng đọc khác.`);
+        } else {
+          setError(`Đã xảy ra lỗi không mong muốn: ${err.message}`);
+        }
       } else {
-        setError('Tạo âm thanh thất bại. Vui lòng kiểm tra API key đang hoạt động và kết nối mạng của bạn.');
+        setError('Tạo âm thanh thất bại. Vui lòng kiểm tra API key và kết nối mạng của bạn.');
       }
     } finally {
       setIsLoading(false);
@@ -174,85 +220,146 @@ const App: React.FC = () => {
   
     } catch (err) {
       console.error('Failed to create zip file:', err);
-      setError('Không thể tạo tệp zip để tải xuống.');
+      if (err instanceof Error) {
+        setError(`Không thể tạo tệp zip để tải xuống: ${err.message}`);
+      } else {
+        setError('Không thể tạo tệp zip để tải xuống do một lỗi không xác định.');
+      }
     } finally {
       setIsZipping(false);
     }
   };
   
+  const isDisabled = isLoading || isPreviewLoading;
+
   return (
     <div className="min-h-screen bg-slate-900 text-slate-200 font-sans flex flex-col">
-       <ApiKeyModal
-        isOpen={isKeyModalOpen}
-        onClose={() => setIsKeyModalOpen(false)}
-        apiKeys={apiKeyState.keys}
-        activeKeyId={apiKeyState.activeKeyId}
-        onAddKey={handleAddKey}
-        onDeleteKey={handleDeleteKey}
-        onSetActiveKey={handleSetActiveKey}
-      />
+       <style>{`
+        .results-scrollbar::-webkit-scrollbar { width: 8px; }
+        .results-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .results-scrollbar::-webkit-scrollbar-thumb {
+          background-color: var(--color-primary-700);
+          border-radius: 4px;
+          border: 2px solid transparent;
+          background-clip: content-box;
+        }
+        .results-scrollbar::-webkit-scrollbar-thumb:hover {
+          background-color: var(--color-primary-600);
+        }
+      `}</style>
       <header className="bg-slate-800/50 backdrop-blur-sm p-4 border-b border-slate-700 shadow-lg flex items-center justify-between sticky top-0 z-10">
-        <div className="text-center flex-grow pl-16">
-          <h1 className="text-2xl md:text-3xl font-bold text-center text-cyan-400">
+        <div className="flex-1"></div>
+        <div className="text-center flex-grow">
+          <h1 className="text-2xl md:text-3xl font-bold text-center text-[--color-primary-400] transition-colors">
             Chuyển đổi Tệp Văn bản sang Giọng nói
           </h1>
           <p className="text-center text-slate-400 mt-1">Cung cấp bởi Gemini TTS</p>
         </div>
-        <button
-          onClick={() => setIsKeyModalOpen(true)}
-          className={`flex items-center space-x-2 px-3 py-2 rounded-lg transition-all duration-200 border ${
-            isKeyAvailable
-              ? 'border-green-500/50 bg-green-500/10 hover:bg-green-500/20 text-green-300'
-              : 'border-yellow-500/50 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-300'
-          }`}
-          title={isKeyAvailable ? "Quản lý API Keys (Đang hoạt động)" : "Thiết lập API Key của bạn"}
-        >
-          <KeyIcon />
-          <span className="hidden sm:inline">API Key</span>
-        </button>
+        <div className="flex-1 flex items-center justify-end space-x-2">
+            <ThemeSelector currentTheme={theme} onThemeChange={setTheme} />
+        </div>
       </header>
       
       <main className="flex-grow container mx-auto p-4 md:p-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
         {/* Control Panel */}
         <div className="bg-slate-800 rounded-xl shadow-2xl p-6 flex flex-col space-y-6 h-fit">
           <div>
-            <h2 className="text-xl font-semibold text-white mb-3">1. Cung cấp Văn bản</h2>
-            <FileUploader onFileSelect={handleFileSelect} disabled={isLoading} />
+            <h2 className="text-xl font-semibold text-[--color-primary-300] mb-3 transition-colors">1. Cung cấp Văn bản</h2>
+            <FileUploader onFileSelect={handleFileSelect} disabled={isDisabled} />
              <div className="relative flex py-4 items-center">
-              <div className="flex-grow border-t border-slate-600"></div>
+              <div className="flex-grow border-t border-[--color-primary-500]/30 transition-colors"></div>
               <span className="flex-shrink mx-4 text-slate-500">HOẶC</span>
-              <div className="flex-grow border-t border-slate-600"></div>
+              <div className="flex-grow border-t border-[--color-primary-500]/30 transition-colors"></div>
             </div>
             <textarea
               value={textFileContent}
               onChange={(e) => setTextFileContent(e.target.value)}
-              className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-colors duration-200 min-h-[200px]"
+              className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors duration-200 min-h-[200px]"
               placeholder="Dán hoặc gõ văn bản của bạn trực tiếp vào đây..."
-              disabled={isLoading}
+              disabled={isDisabled}
             />
           </div>
           
           <div>
-            <h2 className="text-xl font-semibold text-white mb-3">2. Chọn giọng đọc</h2>
-            <select
-              value={selectedVoice}
-              onChange={(e) => setSelectedVoice(e.target.value)}
-              disabled={isLoading}
-              className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 focus:ring-2 focus:ring-cyan-500 focus:border-cyan-500 transition-colors duration-200"
-              aria-label="Chọn giọng đọc"
-            >
-              {voiceOptions.map(voice => (
-                <option key={voice.id} value={voice.id}>{voice.name}</option>
-              ))}
-            </select>
+            <h2 className="text-xl font-semibold text-[--color-primary-300] mb-3 transition-colors">2. Tùy chọn Giọng đọc</h2>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label htmlFor="language-select" className="block text-sm font-medium text-slate-400 mb-2">Ngôn ngữ</label>
+                    <select
+                        id="language-select"
+                        value={selectedLanguage}
+                        onChange={(e) => setSelectedLanguage(e.target.value)}
+                        disabled={isDisabled}
+                        className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors duration-200"
+                        aria-label="Chọn ngôn ngữ"
+                    >
+                        <option value="vietnam">Việt Nam</option>
+                        <option value="other">Quốc tế</option>
+                    </select>
+                </div>
+                <div>
+                    <label htmlFor="region-select" className="block text-sm font-medium text-slate-400 mb-2">Vùng miền</label>
+                    <select
+                    id="region-select"
+                    value={selectedRegion}
+                    onChange={(e) => setSelectedRegion(e.target.value)}
+                    disabled={isDisabled || selectedLanguage !== 'vietnam'}
+                    className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
+                    aria-label="Chọn vùng miền"
+                    >
+                    <option value="bac">Miền Bắc</option>
+                    <option value="trung">Miền Trung</option>
+                    <option value="nam">Miền Nam</option>
+                    </select>
+                </div>
+                <div>
+                    <label htmlFor="voice-select" className="block text-sm font-medium text-slate-400 mb-2">Giọng đọc cụ thể</label>
+                    <div className="flex items-center space-x-2">
+                      <select
+                      id="voice-select"
+                      value={selectedVoice}
+                      onChange={(e) => setSelectedVoice(e.target.value)}
+                      disabled={isDisabled}
+                      className="flex-grow bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors duration-200"
+                      aria-label="Chọn giọng đọc"
+                      >
+                      {voiceOptions.map(voice => (
+                          <option key={voice.id} value={voice.id}>{voice.name}</option>
+                      ))}
+                      </select>
+                       <button
+                          onClick={handlePreviewVoice}
+                          disabled={isDisabled}
+                          className="flex-shrink-0 p-3 rounded-lg bg-slate-700 hover:bg-[--color-primary-600]/50 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
+                          title="Nghe thử giọng đọc đã chọn"
+                          aria-label="Nghe thử giọng đọc đã chọn"
+                      >
+                          {isPreviewLoading 
+                              ? <SpinnerIcon hasMargin={false} />
+                              : <PlayIcon />
+                          }
+                      </button>
+                    </div>
+                </div>
+            </div>
+            {selectedLanguage === 'vietnam' ? (
+              <p className="text-xs text-slate-500 pt-4 text-center">
+                Lưu ý: Tính năng chọn giọng theo vùng miền là thử nghiệm và kết quả có thể không hoàn hảo.
+              </p>
+            ) : (
+              <p className="text-xs text-slate-500 pt-4 text-center">
+                Tool sẽ tự động nhận diện ngôn ngữ bạn nhập vào.
+              </p>
+            )}
           </div>
 
+
           <div>
-            <h2 className="text-xl font-semibold text-white mb-3">3. Tạo âm thanh</h2>
+            <h2 className="text-xl font-semibold text-[--color-primary-300] mb-3 transition-colors">3. Tạo âm thanh</h2>
              <button
               onClick={handleGenerateAudio}
-              disabled={isLoading || !textFileContent}
-              className="w-full flex items-center justify-center bg-cyan-600 hover:bg-cyan-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg transition-all duration-200 transform hover:scale-105 shadow-lg disabled:shadow-none"
+              disabled={isDisabled || !textFileContent}
+              className="w-full flex items-center justify-center bg-[--color-primary-600] hover:bg-[--color-primary-500] disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg transition-all duration-200 transform hover:scale-105 shadow-lg disabled:shadow-none"
             >
               {isLoading ? (
                 <>
@@ -267,7 +374,7 @@ const App: React.FC = () => {
         {/* Results Panel */}
         <div className="bg-slate-800 rounded-xl shadow-2xl p-6">
           <div className="flex items-center justify-between mb-4 border-b border-slate-700 pb-3">
-            <h2 className="text-xl font-semibold text-white">Kết quả</h2>
+            <h2 className="text-xl font-semibold text-[--color-primary-300] transition-colors">Kết quả</h2>
             {audioResults.length > 0 && !isLoading && (
               <button
                 onClick={handleDownloadAll}
@@ -293,7 +400,7 @@ const App: React.FC = () => {
           
           {isLoading && (
              <div className="flex flex-col items-center justify-center text-slate-400 h-64">
-                <SpinnerIcon />
+                <SpinnerIcon hasMargin={false} />
                 <p className="mt-4">Đang tạo âm thanh, vui lòng đợi...</p>
                 <p className="text-sm text-slate-500">Quá trình này có thể mất một lúc đối với các văn bản dài.</p>
             </div>
@@ -306,7 +413,7 @@ const App: React.FC = () => {
           )}
 
           {audioResults.length > 0 && (
-            <div className="space-y-4 max-h-[calc(100vh-250px)] overflow-y-auto pr-2">
+            <div className="space-y-4 max-h-[calc(100vh-250px)] overflow-y-auto pr-2 results-scrollbar">
               {audioResults.map((result) => (
                 <AudioPlayer key={result.id} result={result} />
               ))}

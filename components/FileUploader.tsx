@@ -41,7 +41,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFileSelect, disabl
       <button
         onClick={handleClick}
         disabled={disabled}
-        className="w-full bg-slate-700 border-2 border-dashed border-slate-500 hover:border-cyan-400 hover:bg-slate-600 text-slate-300 font-semibold py-4 px-6 rounded-lg transition-colors duration-200 flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
+        className="w-full bg-slate-700/50 border-2 border-dashed border-slate-600 hover:border-[--color-primary-400] hover:bg-[--color-primary-500]/10 text-slate-300 font-semibold py-4 px-6 rounded-lg transition-all duration-200 flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <UploadIcon />
         <span>Nhấn để chọn một tệp .txt</span>

@@ -1,10 +1,9 @@
 
 
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { generateSpeech } from './services/geminiService';
-import { AudioResult } from './types';
+import { AudioResult, ApiKey } from './types';
 import { FileUploader } from './components/FileUploader';
 import { AudioPlayer } from './components/AudioPlayer';
 import { SpinnerIcon } from './components/icons/SpinnerIcon';
@@ -12,6 +11,8 @@ import { ZipIcon } from './components/icons/ZipIcon';
 import { ThemeSelector } from './components/ThemeSelector';
 import { themes, ThemeName } from './themes';
 import { PlayIcon } from './components/icons/PlayIcon';
+import { ApiKeyModal } from './components/ApiKeyModal';
+import { KeyIcon } from './components/icons/KeyIcon';
 
 
 const voiceOptions = [
@@ -40,16 +41,30 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeName>('green');
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  
+  // API Key State
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
+  const [activeKeyId, setActiveKeyId] = useState<number | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
 
-
+  // Load theme from localStorage
    useEffect(() => {
-    const savedTheme = localStorage.getItem('app-theme');
-    // FIX: Add a type guard to safely handle themes from localStorage
-    if (savedTheme && Object.keys(themes).includes(savedTheme)) {
-      setTheme(savedTheme as ThemeName);
+    try {
+      const savedTheme = localStorage.getItem('app-theme');
+      if (savedTheme && Object.keys(themes).includes(savedTheme)) {
+        setTheme(savedTheme as ThemeName);
+      }
+    } catch (e) {
+      // FIX: Explicitly handle unknown error type before logging.
+      if (e instanceof Error) {
+        console.error("Failed to load theme from localStorage", e.message);
+      } else {
+        console.error("Failed to load theme from localStorage", String(e));
+      }
     }
   }, []);
 
+  // Apply and save theme
   useEffect(() => {
     const root = document.documentElement;
     const themeColors = themes[theme];
@@ -59,7 +74,42 @@ const App: React.FC = () => {
     }
     localStorage.setItem('app-theme', theme);
   }, [theme]);
+  
+  // Load API keys from localStorage
+  useEffect(() => {
+    try {
+      const savedKeys = localStorage.getItem('apiKeys');
+      const savedActiveKeyId = localStorage.getItem('activeApiKeyId');
+      if (savedKeys) {
+        const keys = JSON.parse(savedKeys);
+        setApiKeys(keys);
+        if (savedActiveKeyId) {
+          const activeId = parseInt(savedActiveKeyId, 10);
+          if (keys.some((k: ApiKey) => k.id === activeId)) {
+            setActiveKeyId(activeId);
+          } else if (keys.length > 0) {
+            setActiveKeyId(keys[0].id);
+            localStorage.setItem('activeApiKeyId', keys[0].id.toString());
+          }
+        } else if (keys.length > 0) {
+           setActiveKeyId(keys[0].id);
+           localStorage.setItem('activeApiKeyId', keys[0].id.toString());
+        }
+      }
+    } catch (error) {
+      // FIX: Handle unknown error type before logging.
+      if (error instanceof Error) {
+        console.error("Failed to load API keys from localStorage", error.message);
+      } else {
+        console.error("Failed to load API keys from localStorage", String(error));
+      }
+      localStorage.removeItem('apiKeys');
+      localStorage.removeItem('activeApiKeyId');
+    }
+}, []);
 
+
+  // Cleanup object URLs
   useEffect(() => {
     return () => {
       audioResults.forEach(result => URL.revokeObjectURL(result.audioUrl));
@@ -74,11 +124,49 @@ const App: React.FC = () => {
     setAudioResults([]);
     setError(null);
   }, []);
+  
+  const handleAddKey = (key: string) => {
+    const newKey: ApiKey = { id: Date.now(), key };
+    const updatedKeys = [...apiKeys, newKey];
+    setApiKeys(updatedKeys);
+    localStorage.setItem('apiKeys', JSON.stringify(updatedKeys));
+    if (!activeKeyId) {
+      setActiveKeyId(newKey.id);
+      localStorage.setItem('activeApiKeyId', newKey.id.toString());
+    }
+  };
+
+  const handleDeleteKey = (id: number) => {
+    const updatedKeys = apiKeys.filter(key => key.id !== id);
+    setApiKeys(updatedKeys);
+    localStorage.setItem('apiKeys', JSON.stringify(updatedKeys));
+    if (activeKeyId === id) {
+      const newActiveKey = updatedKeys.length > 0 ? updatedKeys[0].id : null;
+      setActiveKeyId(newActiveKey);
+      if (newActiveKey) {
+          localStorage.setItem('activeApiKeyId', newActiveKey.toString());
+      } else {
+          localStorage.removeItem('activeApiKeyId');
+      }
+    }
+  };
+
+  const handleSetActiveKey = (id: number) => {
+    setActiveKeyId(id);
+    localStorage.setItem('activeApiKeyId', id.toString());
+    setIsModalOpen(false);
+  };
+  
 
   const handlePreviewVoice = async () => {
     if (isLoading || isPreviewLoading) return;
   
-    // Stop any currently playing preview
+    const activeKey = apiKeys.find(k => k.id === activeKeyId)?.key;
+    if (!activeKey) {
+      setError('Vui lòng thêm và chọn một API key đang hoạt động trong phần quản lý.');
+      return;
+    }
+
     if (previewAudioRef.current) {
       previewAudioRef.current.pause();
       URL.revokeObjectURL(previewAudioRef.current.src);
@@ -88,11 +176,10 @@ const App: React.FC = () => {
     setIsPreviewLoading(true);
     setError(null);
   
-    // A neutral, friendly sentence for previewing
     const sampleText = "Xin chào, đây là bản xem trước giọng nói của tôi.";
     
     try {
-      const audioUrl = await generateSpeech(sampleText, selectedVoice);
+      const audioUrl = await generateSpeech(sampleText, selectedVoice, activeKey);
       const audio = new Audio(audioUrl);
       previewAudioRef.current = audio;
       
@@ -118,10 +205,12 @@ const App: React.FC = () => {
            previewAudioRef.current = null;
       }
     } catch (err) {
-      console.error('Error generating preview audio:', err);
+      // FIX: Handle unknown error type before logging and setting state.
       if (err instanceof Error) {
+        console.error('Error generating preview audio:', err.message);
         setError(`Lỗi khi tạo bản xem trước: ${err.message}`);
       } else {
+        console.error('Error generating preview audio:', String(err));
         setError('Không thể tạo âm thanh xem trước.');
       }
       setIsPreviewLoading(false);
@@ -129,14 +218,15 @@ const App: React.FC = () => {
   };
 
   const handleGenerateAudio = async () => {
-    if (!process.env.API_KEY) {
-      setError('API Key is not configured. Please ensure the API_KEY environment variable is set.');
-      return;
-    }
-
     if (!textFileContent) {
       setError('Vui lòng tải lên một tệp văn bản hoặc nhập văn bản trước.');
       return;
+    }
+
+    const activeKey = apiKeys.find(k => k.id === activeKeyId)?.key;
+    if (!activeKey) {
+        setError('Vui lòng thêm và chọn một API key đang hoạt động trong phần quản lý.');
+        return;
     }
 
     setIsLoading(true);
@@ -145,7 +235,6 @@ const App: React.FC = () => {
 
     const getRegionInstruction = (region: string, language: string): string => {
       if (language !== 'vietnam') {
-        // Add a neutral instruction to prevent the API from skipping the first paragraph.
         return 'Hãy đọc đoạn văn sau: ';
       }
       switch (region) {
@@ -168,23 +257,25 @@ const App: React.FC = () => {
       const results = await Promise.all(
         paragraphs.map(async (p, index) => {
           const textWithInstruction = `${instruction}${p}`;
-          const audioUrl = await generateSpeech(textWithInstruction, selectedVoice);
+          const audioUrl = await generateSpeech(textWithInstruction, selectedVoice, activeKey);
           return { id: index, text: p, audioUrl };
         })
       );
       setAudioResults(results);
     } catch (err) {
-      console.error('Error generating audio:', err);
+      // FIX: Handle unknown error type before logging and setting state.
       if (err instanceof Error) {
+        console.error('Error generating audio:', err.message);
         if (err.message.includes('API key not valid') || err.message.includes('API key is invalid') || err.message.includes('permission to access')) {
-          setError('API Key của bạn có vẻ không hợp lệ hoặc không có quyền. Vui lòng kiểm tra lại environment variable.');
+          setError('Đã xảy ra lỗi API. Vui lòng kiểm tra lại API key đang hoạt động trong phần quản lý. Key có thể không hợp lệ hoặc không có quyền cần thiết.');
         } else if (err.message.includes('is not supported')) {
           setError(`Lỗi API: ${err.message}. Giọng đọc được chọn có thể không hợp lệ. Vui lòng thử một giọng đọc khác.`);
         } else {
           setError(`Đã xảy ra lỗi không mong muốn: ${err.message}`);
         }
       } else {
-        setError('Tạo âm thanh thất bại. Vui lòng kiểm tra API key và kết nối mạng của bạn.');
+        console.error('Error generating audio:', String(err));
+        setError('Tạo âm thanh thất bại. Vui lòng kiểm tra kết nối mạng và API key của bạn.');
       }
     } finally {
       setIsLoading(false);
@@ -219,10 +310,12 @@ const App: React.FC = () => {
       URL.revokeObjectURL(link.href);
   
     } catch (err) {
-      console.error('Failed to create zip file:', err);
+      // FIX: Handle unknown error type before logging and setting state.
       if (err instanceof Error) {
+        console.error('Failed to create zip file:', err.message);
         setError(`Không thể tạo tệp zip để tải xuống: ${err.message}`);
       } else {
+        console.error('Failed to create zip file:', String(err));
         setError('Không thể tạo tệp zip để tải xuống do một lỗi không xác định.');
       }
     } finally {
@@ -256,6 +349,14 @@ const App: React.FC = () => {
           <p className="text-center text-slate-400 mt-1">Cung cấp bởi Gemini TTS</p>
         </div>
         <div className="flex-1 flex items-center justify-end space-x-2">
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="flex items-center space-x-2 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-700 transition-colors"
+              title="API Keys"
+            >
+              <KeyIcon />
+              <span className="hidden md:inline">API Keys</span>
+            </button>
             <ThemeSelector currentTheme={theme} onThemeChange={setTheme} />
         </div>
       </header>
@@ -282,7 +383,7 @@ const App: React.FC = () => {
           
           <div>
             <h2 className="text-xl font-semibold text-[--color-primary-300] mb-3 transition-colors">2. Tùy chọn Giọng đọc</h2>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
                     <label htmlFor="language-select" className="block text-sm font-medium text-slate-400 mb-2">Ngôn ngữ</label>
                     <select
@@ -312,7 +413,7 @@ const App: React.FC = () => {
                     <option value="nam">Miền Nam</option>
                     </select>
                 </div>
-                <div>
+                <div className="md:col-span-2">
                     <label htmlFor="voice-select" className="block text-sm font-medium text-slate-400 mb-2">Giọng đọc cụ thể</label>
                     <div className="flex items-center space-x-2">
                       <select
@@ -408,7 +509,7 @@ const App: React.FC = () => {
 
           {!isLoading && audioResults.length === 0 && !error && (
             <div className="flex items-center justify-center text-slate-500 h-64">
-              <p>Các clip âm thanh sẽ xuất hiện ở đây sau khi được tạo.</p>
+              {apiKeys.length === 0 ? 'Vui lòng thêm API key để bắt đầu.' : 'Các clip âm thanh sẽ xuất hiện ở đây sau khi được tạo.'}
             </div>
           )}
 
@@ -421,6 +522,15 @@ const App: React.FC = () => {
           )}
         </div>
       </main>
+      <ApiKeyModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        apiKeys={apiKeys}
+        activeKeyId={activeKeyId}
+        onAddKey={handleAddKey}
+        onDeleteKey={handleDeleteKey}
+        onSetActiveKey={handleSetActiveKey}
+      />
     </div>
   );
 };

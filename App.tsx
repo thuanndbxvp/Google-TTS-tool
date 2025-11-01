@@ -1,9 +1,4 @@
 
-
-
-
-
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { generateSpeech, generateSpeechBytes } from './services/geminiService';
@@ -50,6 +45,7 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeName>('green');
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [progress, setProgress] = useState<{ current: number, total: number } | null>(null);
   
   // API Key State
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
@@ -269,8 +265,12 @@ const App: React.FC = () => {
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch(error => {
-          // FIX: Explicitly cast 'error' to a string to handle the 'unknown' type from the promise rejection.
-          console.error(`Audio playback failed: ${String(error)}`);
+          // FIX: Add robust error handling for promise rejection to handle 'unknown' type.
+          if (error instanceof Error) {
+            console.error(`Audio playback failed: ${error.message}`);
+          } else {
+            console.error(`Audio playback failed: ${String(error)}`);
+          }
           setError("Không thể tự động phát âm thanh xem trước. Vui lòng kiểm tra cài đặt trình duyệt của bạn.");
           URL.revokeObjectURL(audioUrl);
           setIsPreviewLoading(false);
@@ -313,6 +313,7 @@ const App: React.FC = () => {
     setAudioResults([]);
     if (srtResult) URL.revokeObjectURL(srtResult.audioUrl);
     setSrtResult(null);
+    setProgress(null);
 
 
     const getRegionInstruction = (region: string, language: string): string => {
@@ -339,8 +340,14 @@ const App: React.FC = () => {
 
           let currentTime = 0;
           const audioChunks: Uint8Array[] = [];
+          const totalSubtitles = subtitles.length;
+          setProgress({ current: 0, total: totalSubtitles });
 
-          for (const sub of subtitles) {
+
+          for (let i = 0; i < totalSubtitles; i++) {
+            const sub = subtitles[i];
+            setProgress({ current: i + 1, total: totalSubtitles });
+
             const silenceDuration = sub.startTime - currentTime;
             if (silenceDuration > 0) {
               audioChunks.push(createSilence(silenceDuration));
@@ -356,6 +363,11 @@ const App: React.FC = () => {
             
             const speechDuration = getPcmDuration(speechBytes);
             currentTime = sub.startTime + speechDuration;
+            
+            // Add a delay to avoid hitting API rate limits (e.g., 3 RPM for free tier)
+            if (i < totalSubtitles - 1) {
+              await new Promise(resolve => setTimeout(resolve, 21000)); // 21 seconds
+            }
           }
 
           const finalPcm = concatenatePcm(audioChunks);
@@ -370,17 +382,27 @@ const App: React.FC = () => {
             setIsLoading(false);
             return;
           }
-          const results = await Promise.all(
-            paragraphs.map(async (p, index) => {
-              const textWithInstruction = `${instruction}${p}`;
-              const audioUrl = await performApiCallWithRetry(
-                generateSpeech,
-                textWithInstruction,
-                selectedVoice
-              );
-              return { id: index, text: p, audioUrl };
-            })
-          );
+          
+          const results: AudioResult[] = [];
+          const totalParagraphs = paragraphs.length;
+          setProgress({ current: 0, total: totalParagraphs });
+
+          for (let i = 0; i < totalParagraphs; i++) {
+            const p = paragraphs[i];
+            setProgress({ current: i + 1, total: totalParagraphs });
+            const textWithInstruction = `${instruction}${p}`;
+            const audioUrl = await performApiCallWithRetry(
+              generateSpeech,
+              textWithInstruction,
+              selectedVoice
+            );
+            results.push({ id: i, text: p, audioUrl });
+
+             // Add a delay to avoid hitting API rate limits
+            if (i < totalParagraphs - 1) {
+              await new Promise(resolve => setTimeout(resolve, 21000)); // 21 seconds
+            }
+          }
           setAudioResults(results);
       }
     } catch (err) {
@@ -393,6 +415,7 @@ const App: React.FC = () => {
       }
     } finally {
       setIsLoading(false);
+      setProgress(null);
     }
   };
 
@@ -620,8 +643,17 @@ const App: React.FC = () => {
           {isLoading && (
              <div className="flex flex-col items-center justify-center text-slate-400 h-64">
                 <SpinnerIcon hasMargin={false} />
-                <p className="mt-4">Đang tạo âm thanh, vui lòng đợi...</p>
-                <p className="text-sm text-slate-500">Quá trình này có thể mất một lúc đối với các văn bản dài.</p>
+                 {progress ? (
+                  <>
+                    <p className="mt-4">Đang xử lý... ({progress.current}/{progress.total})</p>
+                    <p className="text-sm text-slate-500 mt-1">Do giới hạn của API, có một khoảng trễ giữa các yêu cầu.</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="mt-4">Đang tạo âm thanh, vui lòng đợi...</p>
+                    <p className="text-sm text-slate-500">Quá trình này có thể mất một lúc đối với các văn bản dài.</p>
+                  </>
+                )}
             </div>
           )}
 

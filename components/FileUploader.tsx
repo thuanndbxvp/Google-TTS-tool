@@ -1,4 +1,5 @@
 
+
 import React, { useRef } from 'react';
 import { UploadIcon } from './icons/UploadIcon';
 
@@ -12,7 +13,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFileSelect, disabl
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (file && file.type === 'text/plain') {
+    if (file && (file.type === 'text/plain' || file.name.endsWith('.srt'))) {
       const reader = new FileReader();
       reader.onload = (e) => {
         const text = e.target?.result as string;
@@ -20,7 +21,11 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFileSelect, disabl
       };
       reader.readAsText(file);
     } else {
-      alert('Vui lòng chọn một tệp .txt hợp lệ.');
+      alert('Vui lòng chọn một tệp .txt hoặc .srt hợp lệ.');
+    }
+     // Reset the input value to allow re-uploading the same file
+    if(event.target) {
+      event.target.value = '';
     }
   };
 
@@ -35,7 +40,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFileSelect, disabl
         ref={fileInputRef}
         onChange={handleFileChange}
         className="hidden"
-        accept=".txt"
+        accept=".txt,.srt"
         disabled={disabled}
       />
       <button
@@ -44,7 +49,7 @@ export const FileUploader: React.FC<FileUploaderProps> = ({ onFileSelect, disabl
         className="w-full bg-slate-700/50 border-2 border-dashed border-slate-600 hover:border-[--color-primary-400] hover:bg-[--color-primary-500]/10 text-slate-300 font-semibold py-4 px-6 rounded-lg transition-all duration-200 flex items-center justify-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         <UploadIcon />
-        <span>Nhấn để chọn một tệp .txt</span>
+        <span>Nhấn để chọn một tệp .txt hoặc .srt</span>
       </button>
     </div>
   );

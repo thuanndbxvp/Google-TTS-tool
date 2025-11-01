@@ -1,17 +1,16 @@
 
+
 import { GoogleGenAI, Modality } from "@google/genai";
 import { decode, createWavBlob } from "../utils/audioUtils";
 
-export async function generateSpeech(text: string, voice: string, apiKey: string): Promise<string> {
+export async function generateSpeechBytes(text: string, voice: string, apiKey: string): Promise<Uint8Array> {
   if (!apiKey) {
     throw new Error("API key is required.");
   }
   const ai = new GoogleGenAI({ apiKey });
 
   if (!text.trim()) {
-    // Return a silent audio URL for empty strings to avoid API errors
-    const silentBlob = createWavBlob(new Uint8Array(0));
-    return URL.createObjectURL(silentBlob);
+    return new Uint8Array(0);
   }
 
   const model = "gemini-2.5-flash-preview-tts";
@@ -35,9 +34,13 @@ export async function generateSpeech(text: string, voice: string, apiKey: string
     throw new Error("API did not return audio data.");
   }
 
-  const audioBytes = decode(base64Audio);
+  return decode(base64Audio);
+}
+
+
+export async function generateSpeech(text: string, voice: string, apiKey: string): Promise<string> {
+  const audioBytes = await generateSpeechBytes(text, voice, apiKey);
   const wavBlob = createWavBlob(audioBytes);
   const audioUrl = URL.createObjectURL(wavBlob);
-  
   return audioUrl;
 }

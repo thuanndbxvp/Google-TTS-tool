@@ -1,8 +1,9 @@
 
 
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
-import { generateSpeech } from './services/geminiService';
+import { generateSpeech, generateSpeechBytes } from './services/geminiService';
 import { AudioResult, ApiKey } from './types';
 import { FileUploader } from './components/FileUploader';
 import { AudioPlayer } from './components/AudioPlayer';
@@ -13,6 +14,9 @@ import { themes, ThemeName } from './themes';
 import { PlayIcon } from './components/icons/PlayIcon';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { KeyIcon } from './components/icons/KeyIcon';
+import { parseSrt } from './utils/srtParser';
+import { createSilence, concatenatePcm, getPcmDuration, createWavBlob } from './utils/audioUtils';
+import { SrtResultPlayer } from './components/SrtResultPlayer';
 
 
 const voiceOptions = [
@@ -30,11 +34,13 @@ const voiceOptions = [
 ];
 
 const App: React.FC = () => {
-  const [textFileContent, setTextFileContent] = useState<string>('');
+  const [fileContent, setFileContent] = useState<string>('');
+  const [fileType, setFileType] = useState<'txt' | 'srt' | null>(null);
   const [selectedVoice, setSelectedVoice] = useState<string>('kore');
   const [selectedLanguage, setSelectedLanguage] = useState<string>('other'); // 'vietnam' or 'other'
   const [selectedRegion, setSelectedRegion] = useState<string>('bac'); // 'bac', 'trung', 'nam'
   const [audioResults, setAudioResults] = useState<AudioResult[]>([]);
+  const [srtResult, setSrtResult] = useState<{ audioUrl: string } | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [isPreviewLoading, setIsPreviewLoading] = useState<boolean>(false);
   const [isZipping, setIsZipping] = useState<boolean>(false);
@@ -55,11 +61,12 @@ const App: React.FC = () => {
         setTheme(savedTheme as ThemeName);
       }
     } catch (e) {
-      // FIX: Explicitly handle unknown error type before logging.
       if (e instanceof Error) {
-        console.error("Failed to load theme from localStorage", e.message);
+        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
+        console.error(`Failed to load theme from localStorage: ${e.message}`);
       } else {
-        console.error("Failed to load theme from localStorage", String(e));
+        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
+        console.error(`Failed to load theme from localStorage: ${String(e)}`);
       }
     }
   }, []);
@@ -97,11 +104,12 @@ const App: React.FC = () => {
         }
       }
     } catch (error) {
-      // FIX: Handle unknown error type before logging.
       if (error instanceof Error) {
-        console.error("Failed to load API keys from localStorage", error.message);
+        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
+        console.error(`Failed to load API keys from localStorage: ${error.message}`);
       } else {
-        console.error("Failed to load API keys from localStorage", String(error));
+        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
+        console.error(`Failed to load API keys from localStorage: ${String(error)}`);
       }
       localStorage.removeItem('apiKeys');
       localStorage.removeItem('activeApiKeyId');
@@ -116,14 +124,33 @@ const App: React.FC = () => {
        if (previewAudioRef.current) {
         URL.revokeObjectURL(previewAudioRef.current.src);
       }
+      if (srtResult) {
+        URL.revokeObjectURL(srtResult.audioUrl);
+      }
     };
-  }, [audioResults]);
+  }, [audioResults, srtResult]);
 
   const handleFileSelect = useCallback((content: string, fileName: string) => {
-    setTextFileContent(content);
+    const extension = fileName.split('.').pop()?.toLowerCase();
+    if (extension === 'txt') {
+      setFileType('txt');
+    } else if (extension === 'srt') {
+      setFileType('srt');
+    } else {
+      setFileType(null);
+      setFileContent('');
+      setError('Tệp không hợp lệ. Vui lòng chọn tệp .txt hoặc .srt.');
+      return;
+    }
+
+    setFileContent(content);
     setAudioResults([]);
+    if (srtResult) {
+        URL.revokeObjectURL(srtResult.audioUrl);
+    }
+    setSrtResult(null);
     setError(null);
-  }, []);
+  }, [srtResult]);
   
   const handleAddKey = (key: string) => {
     const newKey: ApiKey = { id: Date.now(), key };
@@ -186,7 +213,8 @@ const App: React.FC = () => {
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch(error => {
-          console.error("Audio playback failed:", error);
+          // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
+          console.error(`Audio playback failed: ${error}`);
           setError("Không thể tự động phát âm thanh xem trước. Vui lòng kiểm tra cài đặt trình duyệt của bạn.");
           URL.revokeObjectURL(audioUrl);
           setIsPreviewLoading(false);
@@ -205,12 +233,13 @@ const App: React.FC = () => {
            previewAudioRef.current = null;
       }
     } catch (err) {
-      // FIX: Handle unknown error type before logging and setting state.
       if (err instanceof Error) {
-        console.error('Error generating preview audio:', err.message);
+        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
+        console.error(`Error generating preview audio: ${err.message}`);
         setError(`Lỗi khi tạo bản xem trước: ${err.message}`);
       } else {
-        console.error('Error generating preview audio:', String(err));
+        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
+        console.error(`Error generating preview audio: ${String(err)}`);
         setError('Không thể tạo âm thanh xem trước.');
       }
       setIsPreviewLoading(false);
@@ -218,7 +247,7 @@ const App: React.FC = () => {
   };
 
   const handleGenerateAudio = async () => {
-    if (!textFileContent) {
+    if (!fileContent) {
       setError('Vui lòng tải lên một tệp văn bản hoặc nhập văn bản trước.');
       return;
     }
@@ -232,6 +261,9 @@ const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
     setAudioResults([]);
+    if (srtResult) URL.revokeObjectURL(srtResult.audioUrl);
+    setSrtResult(null);
+
 
     const getRegionInstruction = (region: string, language: string): string => {
       if (language !== 'vietnam') {
@@ -245,27 +277,58 @@ const App: React.FC = () => {
       }
     };
     const instruction = getRegionInstruction(selectedRegion, selectedLanguage);
-    const paragraphs = textFileContent.split('\n').filter(p => p.trim() !== '');
 
-    if (paragraphs.length === 0) {
-      setError('Nội dung văn bản trống hoặc không chứa đoạn văn nào có thể đọc được.');
-      setIsLoading(false);
-      return;
-    }
-    
     try {
-      const results = await Promise.all(
-        paragraphs.map(async (p, index) => {
-          const textWithInstruction = `${instruction}${p}`;
-          const audioUrl = await generateSpeech(textWithInstruction, selectedVoice, activeKey);
-          return { id: index, text: p, audioUrl };
-        })
-      );
-      setAudioResults(results);
+      if (fileType === 'srt') {
+          const subtitles = parseSrt(fileContent);
+          if (subtitles.length === 0) {
+            setError('Tệp SRT không chứa phụ đề hợp lệ hoặc trống.');
+            setIsLoading(false);
+            return;
+          }
+
+          let currentTime = 0;
+          const audioChunks: Uint8Array[] = [];
+
+          for (const sub of subtitles) {
+            const silenceDuration = sub.startTime - currentTime;
+            if (silenceDuration > 0) {
+              audioChunks.push(createSilence(silenceDuration));
+            }
+
+            const textWithInstruction = `${instruction}${sub.text}`;
+            const speechBytes = await generateSpeechBytes(textWithInstruction, selectedVoice, activeKey);
+            audioChunks.push(speechBytes);
+            
+            const speechDuration = getPcmDuration(speechBytes);
+            currentTime = sub.startTime + speechDuration;
+          }
+
+          const finalPcm = concatenatePcm(audioChunks);
+          const finalWavBlob = createWavBlob(finalPcm);
+          const finalAudioUrl = URL.createObjectURL(finalWavBlob);
+          setSrtResult({ audioUrl: finalAudioUrl });
+
+      } else if (fileType === 'txt') {
+          const paragraphs = fileContent.split('\n').filter(p => p.trim() !== '');
+          if (paragraphs.length === 0) {
+            setError('Nội dung văn bản trống hoặc không chứa đoạn văn nào có thể đọc được.');
+            setIsLoading(false);
+            return;
+          }
+          const results = await Promise.all(
+            paragraphs.map(async (p, index) => {
+              const textWithInstruction = `${instruction}${p}`;
+              const audioUrl = await generateSpeech(textWithInstruction, selectedVoice, activeKey);
+              return { id: index, text: p, audioUrl };
+            })
+          );
+          setAudioResults(results);
+      }
     } catch (err) {
-      // FIX: Handle unknown error type before logging and setting state.
       if (err instanceof Error) {
-        console.error('Error generating audio:', err.message);
+        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
+        console.error(`Error generating audio: ${err.message}`);
         if (err.message.includes('API key not valid') || err.message.includes('API key is invalid') || err.message.includes('permission to access')) {
           setError('Đã xảy ra lỗi API. Vui lòng kiểm tra lại API key đang hoạt động trong phần quản lý. Key có thể không hợp lệ hoặc không có quyền cần thiết.');
         } else if (err.message.includes('is not supported')) {
@@ -274,7 +337,8 @@ const App: React.FC = () => {
           setError(`Đã xảy ra lỗi không mong muốn: ${err.message}`);
         }
       } else {
-        console.error('Error generating audio:', String(err));
+        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
+        console.error(`Error generating audio: ${String(err)}`);
         setError('Tạo âm thanh thất bại. Vui lòng kiểm tra kết nối mạng và API key của bạn.');
       }
     } finally {
@@ -310,12 +374,13 @@ const App: React.FC = () => {
       URL.revokeObjectURL(link.href);
   
     } catch (err) {
-      // FIX: Handle unknown error type before logging and setting state.
       if (err instanceof Error) {
-        console.error('Failed to create zip file:', err.message);
+        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
+        console.error(`Failed to create zip file: ${err.message}`);
         setError(`Không thể tạo tệp zip để tải xuống: ${err.message}`);
       } else {
-        console.error('Failed to create zip file:', String(err));
+        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
+        console.error(`Failed to create zip file: ${String(err)}`);
         setError('Không thể tạo tệp zip để tải xuống do một lỗi không xác định.');
       }
     } finally {
@@ -373,8 +438,11 @@ const App: React.FC = () => {
               <div className="flex-grow border-t border-[--color-primary-500]/30 transition-colors"></div>
             </div>
             <textarea
-              value={textFileContent}
-              onChange={(e) => setTextFileContent(e.target.value)}
+              value={fileContent}
+              onChange={(e) => {
+                setFileContent(e.target.value);
+                setFileType(null); // Assume manual input is like TXT
+              }}
               className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors duration-200 min-h-[200px]"
               placeholder="Dán hoặc gõ văn bản của bạn trực tiếp vào đây..."
               disabled={isDisabled}
@@ -459,7 +527,7 @@ const App: React.FC = () => {
             <h2 className="text-xl font-semibold text-[--color-primary-300] mb-3 transition-colors">3. Tạo âm thanh</h2>
              <button
               onClick={handleGenerateAudio}
-              disabled={isDisabled || !textFileContent}
+              disabled={isDisabled || !fileContent}
               className="w-full flex items-center justify-center bg-[--color-primary-600] hover:bg-[--color-primary-500] disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg transition-all duration-200 transform hover:scale-105 shadow-lg disabled:shadow-none"
             >
               {isLoading ? (
@@ -476,7 +544,7 @@ const App: React.FC = () => {
         <div className="bg-slate-800 rounded-xl shadow-2xl p-6">
           <div className="flex items-center justify-between mb-4 border-b border-slate-700 pb-3">
             <h2 className="text-xl font-semibold text-[--color-primary-300] transition-colors">Kết quả</h2>
-            {audioResults.length > 0 && !isLoading && (
+            {fileType !== 'srt' && audioResults.length > 0 && !isLoading && (
               <button
                 onClick={handleDownloadAll}
                 disabled={isZipping}
@@ -507,13 +575,15 @@ const App: React.FC = () => {
             </div>
           )}
 
-          {!isLoading && audioResults.length === 0 && !error && (
+          {!isLoading && audioResults.length === 0 && !srtResult && !error && (
             <div className="flex items-center justify-center text-slate-500 h-64">
               {apiKeys.length === 0 ? 'Vui lòng thêm API key để bắt đầu.' : 'Các clip âm thanh sẽ xuất hiện ở đây sau khi được tạo.'}
             </div>
           )}
 
-          {audioResults.length > 0 && (
+          {srtResult && !isLoading && <SrtResultPlayer audioUrl={srtResult.audioUrl} />}
+
+          {audioResults.length > 0 && !isLoading && (
             <div className="space-y-4 max-h-[calc(100vh-250px)] overflow-y-auto pr-2 results-scrollbar">
               {audioResults.map((result) => (
                 <AudioPlayer key={result.id} result={result} />

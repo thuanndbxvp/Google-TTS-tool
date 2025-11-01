@@ -1,6 +1,9 @@
 
 
 
+
+
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { generateSpeech, generateSpeechBytes } from './services/geminiService';
@@ -129,6 +132,61 @@ const App: React.FC = () => {
       }
     };
   }, [audioResults, srtResult]);
+  
+  const updateActiveKey = useCallback((id: number) => {
+    setActiveKeyId(id);
+    localStorage.setItem('activeApiKeyId', id.toString());
+  }, []);
+
+  const performApiCallWithRetry = useCallback(async <T extends any[], R>(
+    apiFunction: (...args: [...T, string]) => Promise<R>,
+    ...args: T
+  ): Promise<R> => {
+    if (apiKeys.length === 0) {
+      throw new Error('Không có API key nào được cấu hình. Vui lòng thêm một key.');
+    }
+  
+    const startIndex = activeKeyId ? Math.max(0, apiKeys.findIndex(k => k.id === activeKeyId)) : 0;
+    
+    const orderedApiKeys = [
+      ...apiKeys.slice(startIndex),
+      ...apiKeys.slice(0, startIndex),
+    ];
+  
+    let lastError: Error | null = null;
+  
+    for (const key of orderedApiKeys) {
+      try {
+        console.log(`Attempting API call with key ID: ${key.id}`);
+        const result = await apiFunction(...args, key.key);
+  
+        if (key.id !== activeKeyId) {
+          console.log(`API call successful. Setting active key to ID: ${key.id}`);
+          updateActiveKey(key.id);
+        }
+        setError(null);
+        return result;
+  
+      } catch (err) {
+        if (err instanceof Error) {
+          lastError = err;
+          const isKeyError = err.message.includes('API key not valid') ||
+                             err.message.includes('API key is invalid') ||
+                             err.message.includes('permission to access');
+  
+          if (isKeyError) {
+            console.warn(`API Key ID ${key.id} failed: ${err.message}. Trying next key.`);
+            continue;
+          } else {
+            throw err;
+          }
+        }
+        throw err;
+      }
+    }
+  
+    throw new Error(`Tất cả các API key đều không thành công. Lỗi cuối cùng: ${lastError?.message || 'Lỗi không xác định'}`);
+  }, [apiKeys, activeKeyId, updateActiveKey]);
 
   const handleFileSelect = useCallback((content: string, fileName: string) => {
     const extension = fileName.split('.').pop()?.toLowerCase();
@@ -188,12 +246,6 @@ const App: React.FC = () => {
   const handlePreviewVoice = async () => {
     if (isLoading || isPreviewLoading) return;
   
-    const activeKey = apiKeys.find(k => k.id === activeKeyId)?.key;
-    if (!activeKey) {
-      setError('Vui lòng thêm và chọn một API key đang hoạt động trong phần quản lý.');
-      return;
-    }
-
     if (previewAudioRef.current) {
       previewAudioRef.current.pause();
       URL.revokeObjectURL(previewAudioRef.current.src);
@@ -206,15 +258,19 @@ const App: React.FC = () => {
     const sampleText = "Xin chào, đây là bản xem trước giọng nói của tôi.";
     
     try {
-      const audioUrl = await generateSpeech(sampleText, selectedVoice, activeKey);
+      const audioUrl = await performApiCallWithRetry(
+        generateSpeech,
+        sampleText,
+        selectedVoice
+      );
       const audio = new Audio(audioUrl);
       previewAudioRef.current = audio;
       
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch(error => {
-          // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
-          console.error(`Audio playback failed: ${error}`);
+          // FIX: Explicitly cast 'error' to a string to handle the 'unknown' type from the promise rejection.
+          console.error(`Audio playback failed: ${String(error)}`);
           setError("Không thể tự động phát âm thanh xem trước. Vui lòng kiểm tra cài đặt trình duyệt của bạn.");
           URL.revokeObjectURL(audioUrl);
           setIsPreviewLoading(false);
@@ -250,12 +306,6 @@ const App: React.FC = () => {
     if (!fileContent) {
       setError('Vui lòng tải lên một tệp văn bản hoặc nhập văn bản trước.');
       return;
-    }
-
-    const activeKey = apiKeys.find(k => k.id === activeKeyId)?.key;
-    if (!activeKey) {
-        setError('Vui lòng thêm và chọn một API key đang hoạt động trong phần quản lý.');
-        return;
     }
 
     setIsLoading(true);
@@ -297,7 +347,11 @@ const App: React.FC = () => {
             }
 
             const textWithInstruction = `${instruction}${sub.text}`;
-            const speechBytes = await generateSpeechBytes(textWithInstruction, selectedVoice, activeKey);
+            const speechBytes = await performApiCallWithRetry(
+              generateSpeechBytes,
+              textWithInstruction,
+              selectedVoice
+            );
             audioChunks.push(speechBytes);
             
             const speechDuration = getPcmDuration(speechBytes);
@@ -309,7 +363,7 @@ const App: React.FC = () => {
           const finalAudioUrl = URL.createObjectURL(finalWavBlob);
           setSrtResult({ audioUrl: finalAudioUrl });
 
-      } else if (fileType === 'txt') {
+      } else if (fileType === 'txt' || fileType === null) {
           const paragraphs = fileContent.split('\n').filter(p => p.trim() !== '');
           if (paragraphs.length === 0) {
             setError('Nội dung văn bản trống hoặc không chứa đoạn văn nào có thể đọc được.');
@@ -319,7 +373,11 @@ const App: React.FC = () => {
           const results = await Promise.all(
             paragraphs.map(async (p, index) => {
               const textWithInstruction = `${instruction}${p}`;
-              const audioUrl = await generateSpeech(textWithInstruction, selectedVoice, activeKey);
+              const audioUrl = await performApiCallWithRetry(
+                generateSpeech,
+                textWithInstruction,
+                selectedVoice
+              );
               return { id: index, text: p, audioUrl };
             })
           );
@@ -327,19 +385,11 @@ const App: React.FC = () => {
       }
     } catch (err) {
       if (err instanceof Error) {
-        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
         console.error(`Error generating audio: ${err.message}`);
-        if (err.message.includes('API key not valid') || err.message.includes('API key is invalid') || err.message.includes('permission to access')) {
-          setError('Đã xảy ra lỗi API. Vui lòng kiểm tra lại API key đang hoạt động trong phần quản lý. Key có thể không hợp lệ hoặc không có quyền cần thiết.');
-        } else if (err.message.includes('is not supported')) {
-          setError(`Lỗi API: ${err.message}. Giọng đọc được chọn có thể không hợp lệ. Vui lòng thử một giọng đọc khác.`);
-        } else {
-          setError(`Đã xảy ra lỗi không mong muốn: ${err.message}`);
-        }
+        setError(err.message);
       } else {
-        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
         console.error(`Error generating audio: ${String(err)}`);
-        setError('Tạo âm thanh thất bại. Vui lòng kiểm tra kết nối mạng và API key của bạn.');
+        setError('Tạo âm thanh thất bại do một lỗi không mong muốn.');
       }
     } finally {
       setIsLoading(false);

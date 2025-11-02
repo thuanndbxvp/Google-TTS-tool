@@ -60,11 +60,10 @@ const App: React.FC = () => {
         setTheme(savedTheme as ThemeName);
       }
     } catch (e) {
+      // FIX: Safely handle 'unknown' type from catch block by converting it to a string.
       if (e instanceof Error) {
-        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
         console.error(`Failed to load theme from localStorage: ${e.message}`);
       } else {
-        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
         console.error(`Failed to load theme from localStorage: ${String(e)}`);
       }
     }
@@ -104,10 +103,8 @@ const App: React.FC = () => {
       }
     } catch (error) {
       if (error instanceof Error) {
-        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
         console.error(`Failed to load API keys from localStorage: ${error.message}`);
       } else {
-        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
         console.error(`Failed to load API keys from localStorage: ${String(error)}`);
       }
       localStorage.removeItem('apiKeys');
@@ -265,7 +262,7 @@ const App: React.FC = () => {
       const playPromise = audio.play();
       if (playPromise !== undefined) {
         playPromise.catch(error => {
-          // FIX: Add robust error handling for promise rejection to handle 'unknown' type.
+          // FIX: Safely handle 'unknown' type from promise rejection by converting it to a string.
           if (error instanceof Error) {
             console.error(`Audio playback failed: ${error.message}`);
           } else {
@@ -289,12 +286,11 @@ const App: React.FC = () => {
            previewAudioRef.current = null;
       }
     } catch (err) {
+      // FIX: Safely handle 'unknown' type from catch block by converting it to a string.
       if (err instanceof Error) {
-        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
         console.error(`Error generating preview audio: ${err.message}`);
         setError(`Lỗi khi tạo bản xem trước: ${err.message}`);
       } else {
-        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
         console.error(`Error generating preview audio: ${String(err)}`);
         setError('Không thể tạo âm thanh xem trước.');
       }
@@ -383,7 +379,6 @@ const App: React.FC = () => {
             return;
           }
           
-          const results: AudioResult[] = [];
           const totalParagraphs = paragraphs.length;
           setProgress({ current: 0, total: totalParagraphs });
 
@@ -396,14 +391,14 @@ const App: React.FC = () => {
               textWithInstruction,
               selectedVoice
             );
-            results.push({ id: i, text: p, audioUrl });
+            
+            setAudioResults(prevResults => [...prevResults, { id: i, text: p, audioUrl }]);
 
              // Add a delay to avoid hitting API rate limits
             if (i < totalParagraphs - 1) {
               await new Promise(resolve => setTimeout(resolve, 21000)); // 21 seconds
             }
           }
-          setAudioResults(results);
       }
     } catch (err) {
       if (err instanceof Error) {
@@ -447,12 +442,11 @@ const App: React.FC = () => {
       URL.revokeObjectURL(link.href);
   
     } catch (err) {
+      // FIX: Safely handle 'unknown' type from catch block by converting it to a string.
       if (err instanceof Error) {
-        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
         console.error(`Failed to create zip file: ${err.message}`);
         setError(`Không thể tạo tệp zip để tải xuống: ${err.message}`);
       } else {
-        // FIX: Concatenate console.error arguments into a single string to avoid potential type errors.
         console.error(`Failed to create zip file: ${String(err)}`);
         setError('Không thể tạo tệp zip để tải xuống do một lỗi không xác định.');
       }
@@ -640,7 +634,7 @@ const App: React.FC = () => {
 
           {error && <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-lg mb-4">{error}</div>}
           
-          {isLoading && (
+          {isLoading && audioResults.length === 0 && (
              <div className="flex flex-col items-center justify-center text-slate-400 h-64">
                 <SpinnerIcon hasMargin={false} />
                  {progress ? (
@@ -665,11 +659,22 @@ const App: React.FC = () => {
 
           {srtResult && !isLoading && <SrtResultPlayer audioUrl={srtResult.audioUrl} />}
 
-          {audioResults.length > 0 && !isLoading && (
+          {(audioResults.length > 0) && (
             <div className="space-y-4 max-h-[calc(100vh-250px)] overflow-y-auto pr-2 results-scrollbar">
               {audioResults.map((result) => (
                 <AudioPlayer key={result.id} result={result} />
               ))}
+               {isLoading && (
+                <div className="flex flex-col items-center justify-center text-slate-400 py-8">
+                  <SpinnerIcon hasMargin={false} />
+                  {progress && progress.current < progress.total && (
+                    <>
+                      <p className="mt-4">Đang xử lý... ({progress.current}/{progress.total})</p>
+                      <p className="text-sm text-slate-500 mt-1">Do giới hạn của API, có một khoảng trễ giữa các yêu cầu.</p>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           )}
         </div>

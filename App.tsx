@@ -1,13 +1,14 @@
 
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
-import JSZip from 'jszip';
+// Remove JSZip import as we are moving to direct downloads
+// import JSZip from 'jszip'; 
 import { generateSpeech, generateSpeechBytes } from './services/geminiService';
 import { fetchElevenLabsVoices, fetchElevenLabsModels, generateElevenLabsSpeechBytes } from './services/elevenLabsService';
 import { AudioResult, ApiKey, TtsProvider, ElevenLabsVoice, ElevenLabsModel, ElevenLabsSettings } from './types';
 import { FileUploader } from './components/FileUploader';
 import { AudioPlayer } from './components/AudioPlayer';
 import { SpinnerIcon } from './components/icons/SpinnerIcon';
-import { ZipIcon } from './components/icons/ZipIcon';
+import { DownloadIcon } from './components/icons/DownloadIcon'; // Changed icon
 import { ThemeSelector } from './components/ThemeSelector';
 import { themes, ThemeName } from './themes';
 import { PlayIcon } from './components/icons/PlayIcon';
@@ -78,8 +79,9 @@ const App: React.FC = () => {
   const [audioResults, setAudioResults] = useState<AudioResult[]>([]);
   const [srtResult, setSrtResult] = useState<{ audioUrl: string } | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
+  const [regeneratingIds, setRegeneratingIds] = useState<Set<number>>(new Set());
   const [isPreviewLoading, setIsPreviewLoading] = useState<boolean>(false);
-  const [isZipping, setIsZipping] = useState<boolean>(false);
+  const [isDownloadingAll, setIsDownloadingAll] = useState<boolean>(false); // Changed from isZipping
   const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeName>('green');
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -309,6 +311,17 @@ const App: React.FC = () => {
       return undefined;
   };
 
+  const getInstruction = () => {
+      if (ttsProvider === 'elevenlabs') return ''; // ElevenLabs performs better without instructional prompting
+      if (selectedLanguage !== 'vietnam') return 'Hãy đọc đoạn văn sau: ';
+      switch (selectedRegion) {
+          case 'bac': return 'Nói bằng giọng miền Bắc: ';
+          case 'trung': return 'Nói bằng giọng miền Trung: ';
+          case 'nam': return 'Nói bằng giọng miền Nam: ';
+          default: return '';
+      }
+  };
+
   const handlePreviewVoice = async () => {
     if (isLoading || isPreviewLoading) return;
     if (previewAudioRef.current) {
@@ -386,16 +399,6 @@ const App: React.FC = () => {
     setSrtResult(null);
     setProgress(null);
 
-    const getInstruction = () => {
-        if (ttsProvider === 'elevenlabs') return ''; // ElevenLabs performs better without instructional prompting
-        if (selectedLanguage !== 'vietnam') return 'Hãy đọc đoạn văn sau: ';
-        switch (selectedRegion) {
-            case 'bac': return 'Nói bằng giọng miền Bắc: ';
-            case 'trung': return 'Nói bằng giọng miền Trung: ';
-            case 'nam': return 'Nói bằng giọng miền Nam: ';
-            default: return '';
-        }
-    };
     const instruction = getInstruction();
 
     try {
@@ -448,10 +451,17 @@ const App: React.FC = () => {
                  }
             }
 
-            audioChunks.push(speechBytes);
-            const speechDuration = getPcmDuration(speechBytes);
-            currentTime = sub.startTime + speechDuration;
+            // CRITICAL CHECK: Ensure audio data is valid
+            if (!speechBytes || speechBytes.length === 0) {
+               console.warn("Segment generated empty bytes", sub.id);
+            } else {
+               audioChunks.push(speechBytes);
+               const speechDuration = getPcmDuration(speechBytes);
+               currentTime = sub.startTime + speechDuration;
+            }
           }
+
+          if (audioChunks.length === 0) throw new Error("Không thể tạo bất kỳ âm thanh nào.");
 
           const finalPcm = concatenatePcm(audioChunks);
           const finalWavBlob = createWavBlob(finalPcm);
@@ -483,7 +493,11 @@ const App: React.FC = () => {
                     const keyToUse = elevenLabsKeys[elevenLabsKeyIdx];
                     try {
                         speechBytes = await generateElevenLabsSpeechBytes(p, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl, elevenLabsSettings);
-                        success = true;
+                        if (speechBytes && speechBytes.length > 0) {
+                            success = true;
+                        } else {
+                            throw new Error("Empty audio bytes returned");
+                        }
                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
                     } catch (err) {
                         console.warn(`Key ${elevenLabsKeyIdx} failed:`, err);
@@ -493,6 +507,8 @@ const App: React.FC = () => {
                     }
                  }
                  const blob = createWavBlob(speechBytes);
+                 // Check if blob is just header (44 bytes)
+                 if (blob.size <= 44) throw new Error("Generated audio is empty/silent");
                  audioUrl = URL.createObjectURL(blob);
             }
             
@@ -508,26 +524,99 @@ const App: React.FC = () => {
     }
   };
 
+  const handleRegenerate = async (id: number, text: string) => {
+    if (regeneratingIds.has(id)) return;
+    
+    setRegeneratingIds(prev => new Set(prev).add(id));
+    setError(null);
+    
+    const instruction = getInstruction();
+    const textToRead = `${instruction}${text}`;
+    const elevenLabsKeys = getElevenLabsKeysList();
+    const langCode = ttsProvider === 'elevenlabs' ? getElevenLabsLanguageCode() : undefined;
+    
+    try {
+        let audioUrl = '';
+        let speechBytes: Uint8Array = new Uint8Array(0);
+
+        if (ttsProvider === 'gemini') {
+            audioUrl = await performApiCallWithRetry(generateSpeech, textToRead, selectedGeminiVoice);
+        } else {
+             // For regeneration, we just pick a random key to distribute load, 
+             // or loop if we really wanted robustness, but random is usually fine for single retry
+             if (elevenLabsKeys.length === 0) throw new Error("No ElevenLabs keys");
+             
+             let success = false;
+             let attempts = 0;
+             // Simple retry logic up to 3 times with different keys
+             while(!success && attempts < Math.min(3, elevenLabsKeys.length)) {
+                const randomKeyIdx = Math.floor(Math.random() * elevenLabsKeys.length);
+                const keyToUse = elevenLabsKeys[randomKeyIdx];
+                try {
+                    speechBytes = await generateElevenLabsSpeechBytes(text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl, elevenLabsSettings);
+                     if (speechBytes && speechBytes.length > 0) {
+                        success = true;
+                    } else {
+                        throw new Error("Empty bytes");
+                    }
+                } catch(e) {
+                    attempts++;
+                }
+             }
+             
+             if (!success || speechBytes.length === 0) throw new Error("Failed to regenerate audio");
+             
+             const blob = createWavBlob(speechBytes);
+             if (blob.size <= 44) throw new Error("Generated audio is empty");
+             audioUrl = URL.createObjectURL(blob);
+        }
+
+        // Update the result in the list
+        setAudioResults(prev => prev.map(item => {
+            if (item.id === id) {
+                // Revoke old URL to avoid memory leak
+                if (item.audioUrl) URL.revokeObjectURL(item.audioUrl);
+                return { ...item, audioUrl };
+            }
+            return item;
+        }));
+
+    } catch (err: any) {
+        setError(`Lỗi tạo lại đoạn #${id + 1}: ${err.message}`);
+    } finally {
+        setRegeneratingIds(prev => {
+            const newSet = new Set(prev);
+            newSet.delete(id);
+            return newSet;
+        });
+    }
+  };
+
+
   const handleDownloadAll = async () => {
     if (audioResults.length === 0) return;
-    setIsZipping(true);
+    setIsDownloadingAll(true);
+    
+    // Simple iterative download with delay to prevent browser blocking
     try {
-      const zip = new JSZip();
-      await Promise.all(audioResults.map(async (res) => {
-          const blob = await (await fetch(res.audioUrl)).blob();
-          zip.file(`segment_${res.id + 1}.wav`, blob);
-      }));
-      const zipBlob = await zip.generateAsync({ type: 'blob' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(zipBlob);
-      link.download = 'audio_clips.zip';
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+        for (let i = 0; i < audioResults.length; i++) {
+            const res = audioResults[i];
+            if (!res.audioUrl) continue;
+
+            const link = document.createElement('a');
+            link.href = res.audioUrl;
+            link.download = `segment_${res.id + 1}.wav`;
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            
+            // Add a small delay between downloads
+            await new Promise(resolve => setTimeout(resolve, 500));
+        }
     } catch (err) {
-      setError('Lỗi tạo zip.');
+      setError('Lỗi khi tải xuống.');
     } finally {
-      setIsZipping(false);
+      setIsDownloadingAll(false);
     }
   };
   
@@ -911,18 +1000,18 @@ const App: React.FC = () => {
             {fileType !== 'srt' && audioResults.length > 0 && !isLoading && (
               <button
                 onClick={handleDownloadAll}
-                disabled={isZipping}
+                disabled={isDownloadingAll}
                 className="flex items-center justify-center bg-green-600 hover:bg-green-500 disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200 text-sm"
               >
-                {isZipping ? (
+                {isDownloadingAll ? (
                   <>
                     <SpinnerIcon />
-                    <span>Đang nén...</span>
+                    <span>Đang tải...</span>
                   </>
                 ) : (
                   <>
-                    <ZipIcon />
-                    <span>Tải Tất cả (.zip)</span>
+                    <DownloadIcon />
+                    <span>Tải Tất cả</span>
                   </>
                 )}
               </button>
@@ -954,9 +1043,15 @@ const App: React.FC = () => {
           {srtResult && !isLoading && <SrtResultPlayer audioUrl={srtResult.audioUrl} />}
 
           {(audioResults.length > 0) && (
-            <div className="space-y-4 max-h-[calc(100vh-250px)] overflow-y-auto pr-2 results-scrollbar">
-              {audioResults.map((result) => (
-                <AudioPlayer key={result.id} result={result} />
+            <div className="space-y-4 max-h-[calc(100vh-250px)] overflow-y-auto pr-2 results-scrollbar pt-2">
+              {audioResults.map((result, idx) => (
+                <AudioPlayer 
+                    key={result.id} 
+                    result={result} 
+                    index={idx} 
+                    onRegenerate={handleRegenerate}
+                    isRegenerating={regeneratingIds.has(result.id)}
+                />
               ))}
                {isLoading && (
                 <div className="flex flex-col items-center justify-center text-slate-400 py-8">

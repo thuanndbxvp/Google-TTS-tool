@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { generateSpeech, generateSpeechBytes } from './services/geminiService';
@@ -349,6 +348,8 @@ const App: React.FC = () => {
     const instruction = getInstruction();
 
     try {
+      let elevenLabsKeyIdx = 0;
+
       if (fileType === 'srt') {
           const subtitles = parseSrt(fileContent);
           if (subtitles.length === 0) {
@@ -369,17 +370,31 @@ const App: React.FC = () => {
             if (silenceDuration > 0) audioChunks.push(createSilence(silenceDuration));
 
             const textToRead = `${instruction}${sub.text}`;
-            let speechBytes: Uint8Array;
+            let speechBytes: Uint8Array = new Uint8Array(0);
 
             if (ttsProvider === 'gemini') {
                  speechBytes = await performApiCallWithRetry(generateSpeechBytes, textToRead, selectedGeminiVoice);
                  // Delay for Gemini Rate Limit
                  if (i < subtitles.length - 1) await new Promise(r => setTimeout(r, 21000));
             } else {
-                 // Rotate keys: Use modulus to cycle through keys
-                 const keyToUse = elevenLabsKeys[i % elevenLabsKeys.length];
-                 speechBytes = await generateElevenLabsSpeechBytes(sub.text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl);
-                 // Smaller delay for ElevenLabs
+                 let attempts = 0;
+                 let success = false;
+                 while (!success && attempts < elevenLabsKeys.length) {
+                    const keyToUse = elevenLabsKeys[elevenLabsKeyIdx];
+                    try {
+                        speechBytes = await generateElevenLabsSpeechBytes(sub.text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl);
+                        success = true;
+                        // On success, move to next key for next paragraph (Round Robin)
+                        elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
+                    } catch (err) {
+                         console.warn(`Key ${elevenLabsKeyIdx} failed:`, err);
+                         attempts++;
+                         // On failure, try next key immediately
+                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
+                         
+                         if (attempts >= elevenLabsKeys.length) throw err;
+                    }
+                 }
             }
 
             audioChunks.push(speechBytes);
@@ -404,16 +419,28 @@ const App: React.FC = () => {
             setProgress({ current: i + 1, total: paragraphs.length });
             const textToRead = `${instruction}${p}`;
             
-            let audioUrl: string;
-            let speechBytes: Uint8Array;
+            let audioUrl: string = '';
+            let speechBytes: Uint8Array = new Uint8Array(0);
 
             if (ttsProvider === 'gemini') {
                  audioUrl = await performApiCallWithRetry(generateSpeech, textToRead, selectedGeminiVoice);
                  if (i < paragraphs.length - 1) await new Promise(r => setTimeout(r, 21000));
             } else {
-                 // Rotate keys
-                 const keyToUse = elevenLabsKeys[i % elevenLabsKeys.length];
-                 speechBytes = await generateElevenLabsSpeechBytes(p, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl);
+                 let attempts = 0;
+                 let success = false;
+                 while (!success && attempts < elevenLabsKeys.length) {
+                    const keyToUse = elevenLabsKeys[elevenLabsKeyIdx];
+                    try {
+                        speechBytes = await generateElevenLabsSpeechBytes(p, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl);
+                        success = true;
+                        elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
+                    } catch (err) {
+                        console.warn(`Key ${elevenLabsKeyIdx} failed:`, err);
+                        attempts++;
+                        elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
+                        if (attempts >= elevenLabsKeys.length) throw err;
+                    }
+                 }
                  const blob = createWavBlob(speechBytes);
                  audioUrl = URL.createObjectURL(blob);
             }

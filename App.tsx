@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import JSZip from 'jszip';
 import { generateSpeech, generateSpeechBytes } from './services/geminiService';
 import { fetchElevenLabsVoices, fetchElevenLabsModels, generateElevenLabsSpeechBytes } from './services/elevenLabsService';
@@ -115,6 +115,34 @@ const App: React.FC = () => {
       console.error(error);
     }
   }, []);
+
+  // Calculate text statistics
+  const contentStats = useMemo(() => {
+    if (!fileContent.trim()) return null;
+
+    let textToCheck = fileContent;
+    // If it's SRT, we try to parse it to count only the spoken words, not timestamps
+    if (fileType === 'srt') {
+        try {
+            const subs = parseSrt(fileContent);
+            if (subs.length > 0) {
+                textToCheck = subs.map(s => s.text).join(' ');
+            }
+        } catch (e) {
+            // Fallback to raw content if parsing fails
+        }
+    }
+
+    // Split by whitespace and filter empty strings
+    const wordCount = textToCheck.trim().split(/\s+/).filter(w => w.length > 0).length;
+    
+    // Calculate seconds based on 250 words per minute
+    const totalSeconds = (wordCount / 250) * 60;
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = Math.round(totalSeconds % 60);
+
+    return { wordCount, minutes, seconds };
+  }, [fileContent, fileType]);
 
   // Helper to get array of keys
   const getElevenLabsKeysList = useCallback(() => {
@@ -539,6 +567,14 @@ const App: React.FC = () => {
               placeholder="Dán hoặc gõ văn bản của bạn trực tiếp vào đây..."
               disabled={isDisabled}
             />
+            {contentStats && (
+                <div className="mt-2 flex flex-wrap items-center justify-between text-xs text-slate-400 px-1 gap-2">
+                    <span>Số từ: <span className="text-slate-200 font-medium">{contentStats.wordCount}</span></span>
+                    <span>Ước tính thời lượng: <span className="text-slate-200 font-medium">
+                        {contentStats.minutes > 0 ? `${contentStats.minutes} phút ` : ''}{contentStats.seconds} giây
+                    </span> (250 từ/phút)</span>
+                </div>
+            )}
           </div>
           
           <div>

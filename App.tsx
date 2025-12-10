@@ -84,7 +84,11 @@ const App: React.FC = () => {
   const [isDownloadingAll, setIsDownloadingAll] = useState<boolean>(false); // Changed from isZipping
   const [error, setError] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeName>('green');
+  
+  // Refs for managing object URLs and Audio
   const previewAudioRef = useRef<HTMLAudioElement | null>(null);
+  const generatedUrlsRef = useRef<string[]>([]);
+
   const [progress, setProgress] = useState<{ current: number, total: number } | null>(null);
   
   // API Key State
@@ -205,19 +209,27 @@ const App: React.FC = () => {
   }, [ttsProvider, getElevenLabsKeysList, elevenLabsBaseUrl, elevenLabsVoices.length, selectedElevenLabsModel, useCustomVoiceId]);
 
 
-  // Cleanup object URLs
+  // Cleanup object URLs ONLY on unmount to prevent deleting active URLs during generation
   useEffect(() => {
     return () => {
-      audioResults.forEach(result => URL.revokeObjectURL(result.audioUrl));
-       if (previewAudioRef.current) {
+      // Clean up all generated URLs when component unmounts
+      generatedUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+      generatedUrlsRef.current = [];
+
+      if (previewAudioRef.current) {
         URL.revokeObjectURL(previewAudioRef.current.src);
       }
-      if (srtResult) {
-        URL.revokeObjectURL(srtResult.audioUrl);
-      }
     };
-  }, [audioResults, srtResult]);
+  }, []);
   
+  // Helper to cleanup URLs manually when starting a new session
+  const clearPreviousResults = () => {
+     generatedUrlsRef.current.forEach(url => URL.revokeObjectURL(url));
+     generatedUrlsRef.current = [];
+     setAudioResults([]);
+     setSrtResult(null);
+  };
+
   const updateActiveKey = useCallback((id: number) => {
     setActiveKeyId(id);
     localStorage.setItem('activeApiKeyId', id.toString());
@@ -274,12 +286,12 @@ const App: React.FC = () => {
       setError('Tệp không hợp lệ.');
       return;
     }
+    // Clean up previous results when selecting a new file
+    clearPreviousResults();
+    
     setFileContent(content);
-    setAudioResults([]);
-    if (srtResult) URL.revokeObjectURL(srtResult.audioUrl);
-    setSrtResult(null);
     setError(null);
-  }, [srtResult]);
+  }, []);
   
   const handleAddKey = (key: string) => {
     const newKey: ApiKey = { id: Date.now(), key };
@@ -394,9 +406,10 @@ const App: React.FC = () => {
 
     setIsLoading(true);
     setError(null);
-    setAudioResults([]);
-    if (srtResult) URL.revokeObjectURL(srtResult.audioUrl);
-    setSrtResult(null);
+    
+    // Explicitly clear previous results before starting new generation
+    clearPreviousResults();
+    
     setProgress(null);
 
     const instruction = getInstruction();
@@ -465,7 +478,9 @@ const App: React.FC = () => {
 
           const finalPcm = concatenatePcm(audioChunks);
           const finalWavBlob = createWavBlob(finalPcm);
-          setSrtResult({ audioUrl: URL.createObjectURL(finalWavBlob) });
+          const audioUrl = URL.createObjectURL(finalWavBlob);
+          generatedUrlsRef.current.push(audioUrl); // Track the URL
+          setSrtResult({ audioUrl });
 
       } else {
           const paragraphs = fileContent.split('\n').filter(p => p.trim() !== '');
@@ -512,6 +527,11 @@ const App: React.FC = () => {
                  audioUrl = URL.createObjectURL(blob);
             }
             
+            // Track the new URL to prevent memory leaks, but don't revoke anything yet
+            if (audioUrl) {
+                generatedUrlsRef.current.push(audioUrl);
+            }
+            
             setAudioResults(prev => [...prev, { id: i, text: p, audioUrl }]);
           }
       }
@@ -542,8 +562,7 @@ const App: React.FC = () => {
         if (ttsProvider === 'gemini') {
             audioUrl = await performApiCallWithRetry(generateSpeech, textToRead, selectedGeminiVoice);
         } else {
-             // For regeneration, we just pick a random key to distribute load, 
-             // or loop if we really wanted robustness, but random is usually fine for single retry
+             // For regeneration, we just pick a random key to distribute load
              if (elevenLabsKeys.length === 0) throw new Error("No ElevenLabs keys");
              
              let success = false;
@@ -570,12 +589,18 @@ const App: React.FC = () => {
              if (blob.size <= 44) throw new Error("Generated audio is empty");
              audioUrl = URL.createObjectURL(blob);
         }
+        
+        // Track the regenerated URL
+        if (audioUrl) {
+             generatedUrlsRef.current.push(audioUrl);
+        }
 
         // Update the result in the list
         setAudioResults(prev => prev.map(item => {
             if (item.id === id) {
-                // Revoke old URL to avoid memory leak
-                if (item.audioUrl) URL.revokeObjectURL(item.audioUrl);
+                // Note: We intentionally don't revoke the old URL here immediately
+                // to avoid complexity with React state updates. It will be cleaned up
+                // when starting a new session or unmounting.
                 return { ...item, audioUrl };
             }
             return item;
@@ -658,342 +683,343 @@ const App: React.FC = () => {
         </div>
       </header>
       
-      <main className="flex-grow container mx-auto p-4 md:p-8 grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Control Panel */}
-        <div className="bg-slate-800 rounded-xl shadow-2xl p-6 flex flex-col space-y-6 h-fit">
-          <div>
-            <h2 className="text-xl font-semibold text-[--color-primary-300] mb-3 transition-colors">1. Cung cấp Văn bản</h2>
-            <FileUploader onFileSelect={handleFileSelect} disabled={isDisabled} />
-             <div className="relative flex py-4 items-center">
-              <div className="flex-grow border-t border-[--color-primary-500]/30 transition-colors"></div>
-              <span className="flex-shrink mx-4 text-slate-500">HOẶC</span>
-              <div className="flex-grow border-t border-[--color-primary-500]/30 transition-colors"></div>
-            </div>
-            <textarea
-              value={fileContent}
-              onChange={(e) => {
-                setFileContent(e.target.value);
-                setFileType(null);
-              }}
-              className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors duration-200 min-h-[200px]"
-              placeholder="Dán hoặc gõ văn bản của bạn trực tiếp vào đây..."
-              disabled={isDisabled}
-            />
-            {contentStats && (
-                <div className="mt-2 flex flex-wrap items-center justify-between text-xs text-slate-400 px-1 gap-2">
-                    <span>Số từ: <span className="text-slate-200 font-medium">{contentStats.wordCount}</span></span>
-                    <span>Ước tính thời lượng: <span className="text-slate-200 font-medium">
-                        {contentStats.minutes > 0 ? `${contentStats.minutes} phút ` : ''}{contentStats.seconds} giây
-                    </span> (150 từ/phút)</span>
-                </div>
-            )}
-          </div>
-          
-          <div>
-            <div className="flex justify-between items-center mb-3">
-                 <h2 className="text-xl font-semibold text-[--color-primary-300] transition-colors">2. Cấu hình Giọng đọc</h2>
-                 <div className="flex bg-slate-900 rounded-lg p-1 border border-slate-700">
-                    <button 
-                        onClick={() => setTtsProvider('gemini')}
-                        className={`px-3 py-1 text-sm rounded-md transition-all ${ttsProvider === 'gemini' ? 'bg-[--color-primary-600] text-white shadow' : 'text-slate-400 hover:text-white'}`}
+      <main className="flex-grow container mx-auto p-4 md:p-8 flex flex-col gap-8">
+        {/* Control Panel Block (Full Width) */}
+        <div className="bg-slate-800 rounded-xl shadow-2xl p-6 h-fit">
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                
+                {/* Column 1: Input (Larger) */}
+                <div className="lg:col-span-7 flex flex-col h-full">
+                    <div>
+                        <h2 className="text-xl font-semibold text-[--color-primary-300] mb-3 transition-colors">1. Cung cấp Văn bản</h2>
+                        <FileUploader onFileSelect={handleFileSelect} disabled={isDisabled} />
+                        <div className="relative flex py-4 items-center">
+                            <div className="flex-grow border-t border-[--color-primary-500]/30 transition-colors"></div>
+                            <span className="flex-shrink mx-4 text-slate-500">HOẶC</span>
+                            <div className="flex-grow border-t border-[--color-primary-500]/30 transition-colors"></div>
+                        </div>
+                        <textarea
+                        value={fileContent}
+                        onChange={(e) => {
+                            setFileContent(e.target.value);
+                            setFileType(null);
+                        }}
+                        className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors duration-200 min-h-[300px]"
+                        placeholder="Dán hoặc gõ văn bản của bạn trực tiếp vào đây..."
                         disabled={isDisabled}
-                    >Gemini</button>
-                    <button 
-                        onClick={() => setTtsProvider('elevenlabs')}
-                        className={`px-3 py-1 text-sm rounded-md transition-all ${ttsProvider === 'elevenlabs' ? 'bg-[--color-primary-600] text-white shadow' : 'text-slate-400 hover:text-white'}`}
-                         disabled={isDisabled}
-                    >ElevenLabs</button>
-                 </div>
-            </div>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* Language Selection (Common for both, now enabled for ElevenLabs) */}
-                <div>
-                    <label className="block text-sm font-medium text-slate-400 mb-2">Ngôn ngữ</label>
-                    <select
-                        value={selectedLanguage}
-                        onChange={(e) => setSelectedLanguage(e.target.value)}
-                        disabled={isDisabled}
-                        className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300"
-                    >
-                        <option value="vietnam">Việt Nam</option>
-                        <option value="other">Quốc tế (English)</option>
-                    </select>
+                        />
+                        {contentStats && (
+                            <div className="mt-2 flex flex-wrap items-center justify-between text-xs text-slate-400 px-1 gap-2">
+                                <span>Số từ: <span className="text-slate-200 font-medium">{contentStats.wordCount}</span></span>
+                                <span>Ước tính thời lượng: <span className="text-slate-200 font-medium">
+                                    {contentStats.minutes > 0 ? `${contentStats.minutes} phút ` : ''}{contentStats.seconds} giây
+                                </span> (150 từ/phút)</span>
+                            </div>
+                        )}
+                    </div>
                 </div>
 
-                {ttsProvider === 'gemini' ? (
-                    <>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-400 mb-2">Vùng miền (VN)</label>
-                            <select
-                            value={selectedRegion}
-                            onChange={(e) => setSelectedRegion(e.target.value)}
-                            disabled={isDisabled || selectedLanguage !== 'vietnam'}
-                            className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 disabled:opacity-50"
-                            >
-                            <option value="bac">Miền Bắc</option>
-                            <option value="trung">Miền Trung</option>
-                            <option value="nam">Miền Nam</option>
-                            </select>
-                        </div>
-                         <div className="md:col-span-2">
-                            <label className="block text-sm font-medium text-slate-400 mb-2">Giọng đọc</label>
-                            <div className="flex items-center space-x-2">
-                            <select
-                                value={selectedGeminiVoice}
-                                onChange={(e) => setSelectedGeminiVoice(e.target.value)}
-                                disabled={isDisabled}
-                                className="flex-grow bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300"
-                            >
-                                {geminiVoiceOptions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
-                            </select>
-                             <button onClick={handlePreviewVoice} disabled={isDisabled} className="p-3 rounded-lg bg-slate-700 hover:bg-[--color-primary-600]/50 disabled:opacity-50">
-                                {isPreviewLoading ? <SpinnerIcon hasMargin={false} /> : <PlayIcon />}
-                            </button>
-                            </div>
-                        </div>
-                    </>
-                ) : (
-                    <>
-                         {/* ElevenLabs Controls */}
-                         {getElevenLabsKeysList().length === 0 && (
-                             <div className="md:col-span-2 bg-yellow-500/10 border border-yellow-500/50 text-yellow-200 p-3 rounded-lg text-sm mb-2">
-                                 Bạn cần nhập API Key của ElevenLabs trong phần cài đặt (nút Chìa khóa).
-                             </div>
-                         )}
-                         <div>
-                            {/* Empty placeholder or additional controls if needed */}
-                         </div>
-                         <div className="md:col-span-2">
-                            <label className="block text-sm font-medium text-slate-400 mb-2">Mô hình (Model)</label>
-                            <select
-                                value={selectedElevenLabsModel}
-                                onChange={(e) => setSelectedElevenLabsModel(e.target.value)}
-                                disabled={isDisabled || isLoadingElevenLabs || getElevenLabsKeysList().length === 0}
-                                className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 disabled:opacity-50"
-                            >
-                                {elevenLabsModels.length > 0 
-                                    ? elevenLabsModels.map(m => <option key={m.model_id} value={m.model_id}>{m.name}</option>)
-                                    : <option value="eleven_multilingual_v2">Eleven Multilingual v2</option>
-                                }
-                            </select>
-                            {selectedLanguage === 'vietnam' && selectedElevenLabsModel.includes('english') && (
-                                <p className="text-xs text-yellow-500 mt-1">
-                                    Cảnh báo: Model 'English' có thể không đọc tốt tiếng Việt. Hãy chọn 'Multilingual' hoặc 'Turbo'.
-                                </p>
-                            )}
-                        </div>
-                         <div className="md:col-span-2">
-                            <div className="flex justify-between items-center mb-2">
-                                <label className="block text-sm font-medium text-slate-400">Giọng đọc (Voice)</label>
-                                <div className="flex items-center space-x-2">
-                                    <input
-                                        type="checkbox"
-                                        id="useCustomVoice"
-                                        checked={useCustomVoiceId}
-                                        onChange={(e) => {
-                                            setUseCustomVoiceId(e.target.checked);
-                                            // If switching back to list and current selection isn't in list, reset to first available
-                                            if (!e.target.checked && elevenLabsVoices.length > 0) {
-                                                 const exists = elevenLabsVoices.some(v => v.voice_id === selectedElevenLabsVoice);
-                                                 if (!exists) setSelectedElevenLabsVoice(elevenLabsVoices[0].voice_id);
-                                            }
-                                        }}
-                                        className="rounded border-slate-600 bg-slate-700 text-[--color-primary-500] focus:ring-[--color-primary-500]"
-                                        disabled={isDisabled || getElevenLabsKeysList().length === 0}
-                                    />
-                                    <label htmlFor="useCustomVoice" className="text-xs text-slate-400 cursor-pointer select-none">
-                                        Nhập Voice ID thủ công
-                                    </label>
-                                </div>
-                            </div>
-
-                             <div className="flex items-center space-x-2">
-                                {useCustomVoiceId ? (
-                                    <input
-                                        type="text"
-                                        value={selectedElevenLabsVoice}
-                                        onChange={(e) => setSelectedElevenLabsVoice(e.target.value)}
-                                        placeholder="Nhập Voice ID (ví dụ: z9AwTVuN8C7iJ75jitEW)"
-                                        disabled={isDisabled || getElevenLabsKeysList().length === 0}
-                                        className="flex-grow bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors"
-                                    />
-                                ) : (
-                                    <select
-                                        value={selectedElevenLabsVoice}
-                                        onChange={(e) => setSelectedElevenLabsVoice(e.target.value)}
-                                        disabled={isDisabled || isLoadingElevenLabs || getElevenLabsKeysList().length === 0}
-                                        className="flex-grow bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 disabled:opacity-50"
-                                    >
-                                        {isLoadingElevenLabs && <option>Đang tải danh sách giọng...</option>}
-                                        {!isLoadingElevenLabs && elevenLabsVoices.length === 0 && <option>Không tìm thấy giọng (Kiểm tra Key)</option>}
-                                        {elevenLabsVoices.map(v => <option key={v.voice_id} value={v.voice_id}>{v.name}</option>)}
-                                    </select>
-                                )}
-                                
+                {/* Column 2: Settings (Smaller) */}
+                <div className="lg:col-span-5 flex flex-col gap-6 justify-between">
+                    <div>
+                        <div className="flex justify-between items-center mb-3">
+                            <h2 className="text-xl font-semibold text-[--color-primary-300] transition-colors">2. Cấu hình Giọng đọc</h2>
+                            <div className="flex bg-slate-900 rounded-lg p-1 border border-slate-700">
                                 <button 
-                                    onClick={handlePreviewVoice} 
-                                    disabled={isDisabled || getElevenLabsKeysList().length === 0 || !selectedElevenLabsVoice} 
-                                    className="p-3 rounded-lg bg-slate-700 hover:bg-[--color-primary-600]/50 disabled:opacity-50"
-                                    title="Nghe thử giọng này"
-                                >
-                                    {isPreviewLoading ? <SpinnerIcon hasMargin={false} /> : <PlayIcon />}
-                                </button>
+                                    onClick={() => setTtsProvider('gemini')}
+                                    className={`px-3 py-1 text-sm rounded-md transition-all ${ttsProvider === 'gemini' ? 'bg-[--color-primary-600] text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                                    disabled={isDisabled}
+                                >Gemini</button>
+                                <button 
+                                    onClick={() => setTtsProvider('elevenlabs')}
+                                    className={`px-3 py-1 text-sm rounded-md transition-all ${ttsProvider === 'elevenlabs' ? 'bg-[--color-primary-600] text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                                    disabled={isDisabled}
+                                >ElevenLabs</button>
                             </div>
-                            {useCustomVoiceId && (
-                                <p className="text-xs text-slate-500 mt-1">
-                                    Lưu ý: Đảm bảo Voice ID hợp lệ và bạn có quyền truy cập.
-                                </p>
-                            )}
                         </div>
+                        
+                        <div className="space-y-4">
+                            {/* Language Selection */}
+                            <div>
+                                <label className="block text-sm font-medium text-slate-400 mb-2">Ngôn ngữ</label>
+                                <select
+                                    value={selectedLanguage}
+                                    onChange={(e) => setSelectedLanguage(e.target.value)}
+                                    disabled={isDisabled}
+                                    className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300"
+                                >
+                                    <option value="vietnam">Việt Nam</option>
+                                    <option value="other">Quốc tế (English)</option>
+                                </select>
+                            </div>
 
-                         {/* ElevenLabs Advanced Settings */}
-                         <div className="md:col-span-2 mt-4 bg-slate-900/30 rounded-lg border border-slate-700 overflow-hidden transition-all">
-                             <button
-                                 onClick={() => setIsAdvancedSettingsOpen(!isAdvancedSettingsOpen)}
-                                 className="w-full flex items-center justify-between p-4 hover:bg-slate-800/30 transition-colors focus:outline-none"
-                             >
-                                <h3 className="text-sm font-semibold text-[--color-primary-300] flex items-center">
-                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
-                                     Điều chỉnh Giọng Nói
-                                 </h3>
-                                 <div className={`transform transition-transform duration-200 text-slate-400 ${isAdvancedSettingsOpen ? 'rotate-180' : ''}`}>
-                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                                        <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
-                                    </svg>
-                                 </div>
-                             </button>
-                             
-                             {isAdvancedSettingsOpen && (
-                                <div className="p-4 pt-0 space-y-5 border-t border-slate-700/50 mt-1">
-                                     <div className="pt-2">
-                                        {/* Stability */}
-                                        <div>
-                                            <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                                                <div className="flex items-center">
-                                                    <span>Stability (Ổn định)</span>
-                                                    <InfoTooltip text="Độ ổn định càng cao, giọng đọc càng đều nhưng có thể đơn điệu. Giảm thấp để giọng cảm xúc và biến đổi nhiều hơn." />
-                                                </div>
-                                                <span className="text-[--color-primary-300] font-mono">{elevenLabsSettings.stability.toFixed(2)}</span>
-                                            </div>
-                                            <input
-                                                type="range"
-                                                min="0"
-                                                max="1"
-                                                step="0.01"
-                                                value={elevenLabsSettings.stability}
-                                                onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, stability: parseFloat(e.target.value)})}
-                                                className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[--color-primary-500]"
-                                                disabled={isDisabled || getElevenLabsKeysList().length === 0}
-                                            />
-                                            <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-                                                <span>Biến đổi (0.0)</span>
-                                                <span>Ổn định (1.0)</span>
-                                            </div>
+                            {ttsProvider === 'gemini' ? (
+                                <>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-400 mb-2">Vùng miền (VN)</label>
+                                        <select
+                                        value={selectedRegion}
+                                        onChange={(e) => setSelectedRegion(e.target.value)}
+                                        disabled={isDisabled || selectedLanguage !== 'vietnam'}
+                                        className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 disabled:opacity-50"
+                                        >
+                                        <option value="bac">Miền Bắc</option>
+                                        <option value="trung">Miền Trung</option>
+                                        <option value="nam">Miền Nam</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-400 mb-2">Giọng đọc</label>
+                                        <div className="flex items-center space-x-2">
+                                        <select
+                                            value={selectedGeminiVoice}
+                                            onChange={(e) => setSelectedGeminiVoice(e.target.value)}
+                                            disabled={isDisabled}
+                                            className="flex-grow bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300"
+                                        >
+                                            {geminiVoiceOptions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                                        </select>
+                                        <button onClick={handlePreviewVoice} disabled={isDisabled} className="p-3 rounded-lg bg-slate-700 hover:bg-[--color-primary-600]/50 disabled:opacity-50">
+                                            {isPreviewLoading ? <SpinnerIcon hasMargin={false} /> : <PlayIcon />}
+                                        </button>
                                         </div>
-
-                                        {/* Similarity Boost */}
-                                        <div className="mt-5">
-                                            <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                                                <div className="flex items-center">
-                                                    <span>Similarity Boost (Độ tương đồng)</span>
-                                                    <InfoTooltip text="Quyết định mức độ bám sát giọng gốc. Giá trị quá cao có thể gây nhiễu âm thanh, quá thấp giọng sẽ nghe chung chung." />
-                                                </div>
-                                                <span className="text-[--color-primary-300] font-mono">{elevenLabsSettings.similarityBoost.toFixed(2)}</span>
-                                            </div>
-                                            <input
-                                                type="range"
-                                                min="0"
-                                                max="1"
-                                                step="0.01"
-                                                value={elevenLabsSettings.similarityBoost}
-                                                onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, similarityBoost: parseFloat(e.target.value)})}
-                                                className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[--color-primary-500]"
-                                                disabled={isDisabled || getElevenLabsKeysList().length === 0}
-                                            />
-                                            <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-                                                <span>Thấp (0.0)</span>
-                                                <span>Cao (1.0)</span>
-                                            </div>
+                                    </div>
+                                </>
+                            ) : (
+                                <>
+                                    {/* ElevenLabs Controls */}
+                                    {getElevenLabsKeysList().length === 0 && (
+                                        <div className="bg-yellow-500/10 border border-yellow-500/50 text-yellow-200 p-3 rounded-lg text-sm mb-2">
+                                            Bạn cần nhập API Key của ElevenLabs trong phần cài đặt (nút Chìa khóa).
                                         </div>
-
-                                        {/* Style Exaggeration */}
-                                        <div className="mt-5">
-                                            <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                                                <div className="flex items-center">
-                                                    <span>Style Exaggeration (Phóng đại phong cách)</span>
-                                                    <InfoTooltip text="Cường điệu hóa phong cách của model. Tăng lên để giọng điệu mạnh mẽ hơn, nhưng quá cao có thể gây mất tự nhiên." />
-                                                </div>
-                                                <span className="text-[--color-primary-300] font-mono">{elevenLabsSettings.style.toFixed(2)}</span>
-                                            </div>
-                                            <input
-                                                type="range"
-                                                min="0"
-                                                max="1"
-                                                step="0.01"
-                                                value={elevenLabsSettings.style}
-                                                onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, style: parseFloat(e.target.value)})}
-                                                className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[--color-primary-500]"
-                                                disabled={isDisabled || getElevenLabsKeysList().length === 0}
-                                            />
-                                            <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-                                                <span>Không (0.0)</span>
-                                                <span>Rất nhiều (1.0)</span>
-                                            </div>
-                                        </div>
-
-                                        <div className="pt-4">
-                                            <label className="flex items-center space-x-2 cursor-pointer w-fit">
-                                                <input 
+                                    )}
+                                    
+                                    <div>
+                                        <label className="block text-sm font-medium text-slate-400 mb-2">Mô hình (Model)</label>
+                                        <select
+                                            value={selectedElevenLabsModel}
+                                            onChange={(e) => setSelectedElevenLabsModel(e.target.value)}
+                                            disabled={isDisabled || isLoadingElevenLabs || getElevenLabsKeysList().length === 0}
+                                            className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 disabled:opacity-50"
+                                        >
+                                            {elevenLabsModels.length > 0 
+                                                ? elevenLabsModels.map(m => <option key={m.model_id} value={m.model_id}>{m.name}</option>)
+                                                : <option value="eleven_multilingual_v2">Eleven Multilingual v2</option>
+                                            }
+                                        </select>
+                                        {selectedLanguage === 'vietnam' && selectedElevenLabsModel.includes('english') && (
+                                            <p className="text-xs text-yellow-500 mt-1">
+                                                Cảnh báo: Model 'English' có thể không đọc tốt tiếng Việt. Hãy chọn 'Multilingual' hoặc 'Turbo'.
+                                            </p>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <div className="flex justify-between items-center mb-2">
+                                            <label className="block text-sm font-medium text-slate-400">Giọng đọc (Voice)</label>
+                                            <div className="flex items-center space-x-2">
+                                                <input
                                                     type="checkbox"
-                                                    checked={elevenLabsSettings.useSpeakerBoost}
-                                                    onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, useSpeakerBoost: e.target.checked})}
+                                                    id="useCustomVoice"
+                                                    checked={useCustomVoiceId}
+                                                    onChange={(e) => {
+                                                        setUseCustomVoiceId(e.target.checked);
+                                                        if (!e.target.checked && elevenLabsVoices.length > 0) {
+                                                            const exists = elevenLabsVoices.some(v => v.voice_id === selectedElevenLabsVoice);
+                                                            if (!exists) setSelectedElevenLabsVoice(elevenLabsVoices[0].voice_id);
+                                                        }
+                                                    }}
                                                     className="rounded border-slate-600 bg-slate-700 text-[--color-primary-500] focus:ring-[--color-primary-500]"
                                                     disabled={isDisabled || getElevenLabsKeysList().length === 0}
                                                 />
-                                                <span className="text-xs text-slate-400">Speaker Boost (Tăng cường độ rõ của giọng)</span>
-                                                <InfoTooltip text="Tăng cường độ rõ ràng và âm lượng của giọng nói. Khuyên dùng để có chất lượng tốt nhất." />
-                                            </label>
+                                                <label htmlFor="useCustomVoice" className="text-xs text-slate-400 cursor-pointer select-none">
+                                                    Nhập Voice ID thủ công
+                                                </label>
+                                            </div>
                                         </div>
-                                     </div>
-                                </div>
-                             )}
-                         </div>
-                    </>
-                )}
+
+                                        <div className="flex items-center space-x-2">
+                                            {useCustomVoiceId ? (
+                                                <input
+                                                    type="text"
+                                                    value={selectedElevenLabsVoice}
+                                                    onChange={(e) => setSelectedElevenLabsVoice(e.target.value)}
+                                                    placeholder="Nhập Voice ID (ví dụ: z9AwTVuN8C7iJ75jitEW)"
+                                                    disabled={isDisabled || getElevenLabsKeysList().length === 0}
+                                                    className="flex-grow bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors"
+                                                />
+                                            ) : (
+                                                <select
+                                                    value={selectedElevenLabsVoice}
+                                                    onChange={(e) => setSelectedElevenLabsVoice(e.target.value)}
+                                                    disabled={isDisabled || isLoadingElevenLabs || getElevenLabsKeysList().length === 0}
+                                                    className="flex-grow bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 disabled:opacity-50"
+                                                >
+                                                    {isLoadingElevenLabs && <option>Đang tải danh sách giọng...</option>}
+                                                    {!isLoadingElevenLabs && elevenLabsVoices.length === 0 && <option>Không tìm thấy giọng (Kiểm tra Key)</option>}
+                                                    {elevenLabsVoices.map(v => <option key={v.voice_id} value={v.voice_id}>{v.name}</option>)}
+                                                </select>
+                                            )}
+                                            
+                                            <button 
+                                                onClick={handlePreviewVoice} 
+                                                disabled={isDisabled || getElevenLabsKeysList().length === 0 || !selectedElevenLabsVoice} 
+                                                className="p-3 rounded-lg bg-slate-700 hover:bg-[--color-primary-600]/50 disabled:opacity-50"
+                                                title="Nghe thử giọng này"
+                                            >
+                                                {isPreviewLoading ? <SpinnerIcon hasMargin={false} /> : <PlayIcon />}
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* ElevenLabs Advanced Settings */}
+                                    <div className="mt-2 bg-slate-900/30 rounded-lg border border-slate-700 overflow-hidden transition-all">
+                                        <button
+                                            onClick={() => setIsAdvancedSettingsOpen(!isAdvancedSettingsOpen)}
+                                            className="w-full flex items-center justify-between p-4 hover:bg-slate-800/30 transition-colors focus:outline-none"
+                                        >
+                                            <h3 className="text-sm font-semibold text-[--color-primary-300] flex items-center">
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
+                                                Điều chỉnh Giọng Nói
+                                            </h3>
+                                            <div className={`transform transition-transform duration-200 text-slate-400 ${isAdvancedSettingsOpen ? 'rotate-180' : ''}`}>
+                                                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                                    <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                                                </svg>
+                                            </div>
+                                        </button>
+                                        
+                                        {isAdvancedSettingsOpen && (
+                                            <div className="p-4 pt-0 space-y-5 border-t border-slate-700/50 mt-1">
+                                                <div className="pt-2">
+                                                    {/* Stability */}
+                                                    <div>
+                                                        <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                                                            <div className="flex items-center">
+                                                                <span>Stability (Ổn định)</span>
+                                                                <InfoTooltip text="Độ ổn định càng cao, giọng đọc càng đều nhưng có thể đơn điệu. Giảm thấp để giọng cảm xúc và biến đổi nhiều hơn." />
+                                                            </div>
+                                                            <span className="text-[--color-primary-300] font-mono">{elevenLabsSettings.stability.toFixed(2)}</span>
+                                                        </div>
+                                                        <input
+                                                            type="range"
+                                                            min="0"
+                                                            max="1"
+                                                            step="0.01"
+                                                            value={elevenLabsSettings.stability}
+                                                            onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, stability: parseFloat(e.target.value)})}
+                                                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[--color-primary-500]"
+                                                            disabled={isDisabled || getElevenLabsKeysList().length === 0}
+                                                        />
+                                                        <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                                                            <span>Biến đổi (0.0)</span>
+                                                            <span>Ổn định (1.0)</span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Similarity Boost */}
+                                                    <div className="mt-5">
+                                                        <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                                                            <div className="flex items-center">
+                                                                <span>Similarity Boost (Độ tương đồng)</span>
+                                                                <InfoTooltip text="Quyết định mức độ bám sát giọng gốc. Giá trị quá cao có thể gây nhiễu âm thanh, quá thấp giọng sẽ nghe chung chung." />
+                                                            </div>
+                                                            <span className="text-[--color-primary-300] font-mono">{elevenLabsSettings.similarityBoost.toFixed(2)}</span>
+                                                        </div>
+                                                        <input
+                                                            type="range"
+                                                            min="0"
+                                                            max="1"
+                                                            step="0.01"
+                                                            value={elevenLabsSettings.similarityBoost}
+                                                            onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, similarityBoost: parseFloat(e.target.value)})}
+                                                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[--color-primary-500]"
+                                                            disabled={isDisabled || getElevenLabsKeysList().length === 0}
+                                                        />
+                                                        <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                                                            <span>Thấp (0.0)</span>
+                                                            <span>Cao (1.0)</span>
+                                                        </div>
+                                                    </div>
+
+                                                    {/* Style Exaggeration */}
+                                                    <div className="mt-5">
+                                                        <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                                                            <div className="flex items-center">
+                                                                <span>Style Exaggeration (Phóng đại phong cách)</span>
+                                                                <InfoTooltip text="Cường điệu hóa phong cách của model. Tăng lên để giọng điệu mạnh mẽ hơn, nhưng quá cao có thể gây mất tự nhiên." />
+                                                            </div>
+                                                            <span className="text-[--color-primary-300] font-mono">{elevenLabsSettings.style.toFixed(2)}</span>
+                                                        </div>
+                                                        <input
+                                                            type="range"
+                                                            min="0"
+                                                            max="1"
+                                                            step="0.01"
+                                                            value={elevenLabsSettings.style}
+                                                            onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, style: parseFloat(e.target.value)})}
+                                                            className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[--color-primary-500]"
+                                                            disabled={isDisabled || getElevenLabsKeysList().length === 0}
+                                                        />
+                                                        <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                                                            <span>Không (0.0)</span>
+                                                            <span>Rất nhiều (1.0)</span>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="pt-4">
+                                                        <label className="flex items-center space-x-2 cursor-pointer w-fit">
+                                                            <input 
+                                                                type="checkbox"
+                                                                checked={elevenLabsSettings.useSpeakerBoost}
+                                                                onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, useSpeakerBoost: e.target.checked})}
+                                                                className="rounded border-slate-600 bg-slate-700 text-[--color-primary-500] focus:ring-[--color-primary-500]"
+                                                                disabled={isDisabled || getElevenLabsKeysList().length === 0}
+                                                            />
+                                                            <span className="text-xs text-slate-400">Speaker Boost (Tăng cường độ rõ của giọng)</span>
+                                                            <InfoTooltip text="Tăng cường độ rõ ràng và âm lượng của giọng nói. Khuyên dùng để có chất lượng tốt nhất." />
+                                                        </label>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            )}
+                        </div>
+                        
+                        {ttsProvider === 'gemini' && selectedLanguage === 'vietnam' && (
+                        <p className="text-xs text-slate-500 pt-4 text-center">
+                            Gemini: Tính năng chọn giọng theo vùng miền là thử nghiệm.
+                        </p>
+                        )}
+                        {ttsProvider === 'elevenlabs' && (
+                        <p className="text-xs text-slate-500 pt-4 text-center">
+                            Mẹo: Nhập nhiều API Key để hệ thống tự động xoay vòng và tránh lỗi giới hạn.
+                        </p>
+                        )}
+                    </div>
+
+
+                    <div className="mt-auto">
+                        <h2 className="text-xl font-semibold text-[--color-primary-300] mb-3 transition-colors">3. Tạo âm thanh</h2>
+                        <button
+                        onClick={handleGenerateAudio}
+                        disabled={isDisabled || !fileContent}
+                        className="w-full flex items-center justify-center bg-[--color-primary-600] hover:bg-[--color-primary-500] disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg transition-all duration-200 transform hover:scale-105 shadow-lg disabled:shadow-none"
+                        >
+                        {isLoading ? (
+                            <>
+                            <SpinnerIcon />
+                            Đang tạo...
+                            </>
+                        ) : 'Tạo Clip Âm thanh'}
+                        </button>
+                    </div>
+                </div>
             </div>
-            
-            {ttsProvider === 'gemini' && selectedLanguage === 'vietnam' && (
-              <p className="text-xs text-slate-500 pt-4 text-center">
-                Gemini: Tính năng chọn giọng theo vùng miền là thử nghiệm.
-              </p>
-            )}
-             {ttsProvider === 'elevenlabs' && (
-              <p className="text-xs text-slate-500 pt-4 text-center">
-                Mẹo: Nhập nhiều API Key để hệ thống tự động xoay vòng và tránh lỗi giới hạn.
-              </p>
-            )}
-          </div>
-
-
-          <div>
-            <h2 className="text-xl font-semibold text-[--color-primary-300] mb-3 transition-colors">3. Tạo âm thanh</h2>
-             <button
-              onClick={handleGenerateAudio}
-              disabled={isDisabled || !fileContent}
-              className="w-full flex items-center justify-center bg-[--color-primary-600] hover:bg-[--color-primary-500] disabled:bg-slate-600 disabled:cursor-not-allowed text-white font-bold py-3 px-4 rounded-lg transition-all duration-200 transform hover:scale-105 shadow-lg disabled:shadow-none"
-            >
-              {isLoading ? (
-                <>
-                  <SpinnerIcon />
-                  Đang tạo...
-                </>
-              ) : 'Tạo Clip Âm thanh'}
-            </button>
-          </div>
         </div>
 
-        {/* Results Panel */}
+        {/* Results Panel (Full Width) */}
         <div className="bg-slate-800 rounded-xl shadow-2xl p-6">
           <div className="flex items-center justify-between mb-4 border-b border-slate-700 pb-3">
             <h2 className="text-xl font-semibold text-[--color-primary-300] transition-colors">Kết quả</h2>
@@ -1043,7 +1069,7 @@ const App: React.FC = () => {
           {srtResult && !isLoading && <SrtResultPlayer audioUrl={srtResult.audioUrl} />}
 
           {(audioResults.length > 0) && (
-            <div className="space-y-4 max-h-[calc(100vh-250px)] overflow-y-auto pr-2 results-scrollbar pt-2">
+            <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 pt-2">
               {audioResults.map((result, idx) => (
                 <AudioPlayer 
                     key={result.id} 
@@ -1054,7 +1080,7 @@ const App: React.FC = () => {
                 />
               ))}
                {isLoading && (
-                <div className="flex flex-col items-center justify-center text-slate-400 py-8">
+                <div className="col-span-1 xl:col-span-2 flex flex-col items-center justify-center text-slate-400 py-8">
                   <SpinnerIcon hasMargin={false} />
                   {progress && <p className="mt-4">Đang xử lý... ({progress.current}/{progress.total})</p>}
                 </div>

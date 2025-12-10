@@ -72,6 +72,7 @@ const App: React.FC = () => {
     style: 0.0,
     useSpeakerBoost: true
   });
+  const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState<boolean>(false);
 
   // Common State
   const [audioResults, setAudioResults] = useState<AudioResult[]>([]);
@@ -758,102 +759,116 @@ const App: React.FC = () => {
                         </div>
 
                          {/* ElevenLabs Advanced Settings */}
-                         <div className="md:col-span-2 mt-4 p-4 bg-slate-900/30 rounded-lg border border-slate-700">
-                             <h3 className="text-sm font-semibold text-[--color-primary-300] mb-4 flex items-center">
-                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
-                                 Điều chỉnh Giọng Nói
-                             </h3>
+                         <div className="md:col-span-2 mt-4 bg-slate-900/30 rounded-lg border border-slate-700 overflow-hidden transition-all">
+                             <button
+                                 onClick={() => setIsAdvancedSettingsOpen(!isAdvancedSettingsOpen)}
+                                 className="w-full flex items-center justify-between p-4 hover:bg-slate-800/30 transition-colors focus:outline-none"
+                             >
+                                <h3 className="text-sm font-semibold text-[--color-primary-300] flex items-center">
+                                     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
+                                     Điều chỉnh Giọng Nói
+                                 </h3>
+                                 <div className={`transform transition-transform duration-200 text-slate-400 ${isAdvancedSettingsOpen ? 'rotate-180' : ''}`}>
+                                    <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
+                                        <path fillRule="evenodd" d="M5.293 7.293a1 1 0 011.414 0L10 10.586l3.293-3.293a1 1 0 111.414 1.414l-4 4a1 1 0 01-1.414 0l-4-4a1 1 0 010-1.414z" clipRule="evenodd" />
+                                    </svg>
+                                 </div>
+                             </button>
                              
-                             <div className="space-y-5">
-                                 {/* Stability */}
-                                 <div>
-                                     <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                                         <div className="flex items-center">
-                                            <span>Stability (Ổn định)</span>
-                                            <InfoTooltip text="Độ ổn định càng cao, giọng đọc càng đều nhưng có thể đơn điệu. Giảm thấp để giọng cảm xúc và biến đổi nhiều hơn." />
-                                         </div>
-                                         <span className="text-[--color-primary-300] font-mono">{elevenLabsSettings.stability.toFixed(2)}</span>
-                                     </div>
-                                     <input
-                                         type="range"
-                                         min="0"
-                                         max="1"
-                                         step="0.01"
-                                         value={elevenLabsSettings.stability}
-                                         onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, stability: parseFloat(e.target.value)})}
-                                         className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[--color-primary-500]"
-                                         disabled={isDisabled || getElevenLabsKeysList().length === 0}
-                                     />
-                                      <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-                                         <span>Biến đổi (0.0)</span>
-                                         <span>Ổn định (1.0)</span>
-                                     </div>
-                                 </div>
+                             {isAdvancedSettingsOpen && (
+                                <div className="p-4 pt-0 space-y-5 border-t border-slate-700/50 mt-1">
+                                     <div className="pt-2">
+                                        {/* Stability */}
+                                        <div>
+                                            <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                                                <div className="flex items-center">
+                                                    <span>Stability (Ổn định)</span>
+                                                    <InfoTooltip text="Độ ổn định càng cao, giọng đọc càng đều nhưng có thể đơn điệu. Giảm thấp để giọng cảm xúc và biến đổi nhiều hơn." />
+                                                </div>
+                                                <span className="text-[--color-primary-300] font-mono">{elevenLabsSettings.stability.toFixed(2)}</span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                min="0"
+                                                max="1"
+                                                step="0.01"
+                                                value={elevenLabsSettings.stability}
+                                                onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, stability: parseFloat(e.target.value)})}
+                                                className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[--color-primary-500]"
+                                                disabled={isDisabled || getElevenLabsKeysList().length === 0}
+                                            />
+                                            <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                                                <span>Biến đổi (0.0)</span>
+                                                <span>Ổn định (1.0)</span>
+                                            </div>
+                                        </div>
 
-                                 {/* Similarity Boost */}
-                                 <div>
-                                     <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                                         <div className="flex items-center">
-                                            <span>Similarity Boost (Độ tương đồng)</span>
-                                            <InfoTooltip text="Quyết định mức độ bám sát giọng gốc. Giá trị quá cao có thể gây nhiễu âm thanh, quá thấp giọng sẽ nghe chung chung." />
-                                         </div>
-                                         <span className="text-[--color-primary-300] font-mono">{elevenLabsSettings.similarityBoost.toFixed(2)}</span>
-                                     </div>
-                                     <input
-                                         type="range"
-                                         min="0"
-                                         max="1"
-                                         step="0.01"
-                                         value={elevenLabsSettings.similarityBoost}
-                                         onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, similarityBoost: parseFloat(e.target.value)})}
-                                         className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[--color-primary-500]"
-                                         disabled={isDisabled || getElevenLabsKeysList().length === 0}
-                                     />
-                                     <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-                                         <span>Thấp (0.0)</span>
-                                         <span>Cao (1.0)</span>
-                                     </div>
-                                 </div>
+                                        {/* Similarity Boost */}
+                                        <div className="mt-5">
+                                            <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                                                <div className="flex items-center">
+                                                    <span>Similarity Boost (Độ tương đồng)</span>
+                                                    <InfoTooltip text="Quyết định mức độ bám sát giọng gốc. Giá trị quá cao có thể gây nhiễu âm thanh, quá thấp giọng sẽ nghe chung chung." />
+                                                </div>
+                                                <span className="text-[--color-primary-300] font-mono">{elevenLabsSettings.similarityBoost.toFixed(2)}</span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                min="0"
+                                                max="1"
+                                                step="0.01"
+                                                value={elevenLabsSettings.similarityBoost}
+                                                onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, similarityBoost: parseFloat(e.target.value)})}
+                                                className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[--color-primary-500]"
+                                                disabled={isDisabled || getElevenLabsKeysList().length === 0}
+                                            />
+                                            <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                                                <span>Thấp (0.0)</span>
+                                                <span>Cao (1.0)</span>
+                                            </div>
+                                        </div>
 
-                                 {/* Style Exaggeration */}
-                                 <div>
-                                     <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
-                                         <div className="flex items-center">
-                                            <span>Style Exaggeration (Phóng đại phong cách)</span>
-                                            <InfoTooltip text="Cường điệu hóa phong cách của model. Tăng lên để giọng điệu mạnh mẽ hơn, nhưng quá cao có thể gây mất tự nhiên." />
-                                         </div>
-                                         <span className="text-[--color-primary-300] font-mono">{elevenLabsSettings.style.toFixed(2)}</span>
-                                     </div>
-                                     <input
-                                         type="range"
-                                         min="0"
-                                         max="1"
-                                         step="0.01"
-                                         value={elevenLabsSettings.style}
-                                         onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, style: parseFloat(e.target.value)})}
-                                         className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[--color-primary-500]"
-                                         disabled={isDisabled || getElevenLabsKeysList().length === 0}
-                                     />
-                                     <div className="flex justify-between text-[10px] text-slate-500 mt-1">
-                                         <span>Không (0.0)</span>
-                                         <span>Rất nhiều (1.0)</span>
-                                     </div>
-                                 </div>
+                                        {/* Style Exaggeration */}
+                                        <div className="mt-5">
+                                            <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                                                <div className="flex items-center">
+                                                    <span>Style Exaggeration (Phóng đại phong cách)</span>
+                                                    <InfoTooltip text="Cường điệu hóa phong cách của model. Tăng lên để giọng điệu mạnh mẽ hơn, nhưng quá cao có thể gây mất tự nhiên." />
+                                                </div>
+                                                <span className="text-[--color-primary-300] font-mono">{elevenLabsSettings.style.toFixed(2)}</span>
+                                            </div>
+                                            <input
+                                                type="range"
+                                                min="0"
+                                                max="1"
+                                                step="0.01"
+                                                value={elevenLabsSettings.style}
+                                                onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, style: parseFloat(e.target.value)})}
+                                                className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[--color-primary-500]"
+                                                disabled={isDisabled || getElevenLabsKeysList().length === 0}
+                                            />
+                                            <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                                                <span>Không (0.0)</span>
+                                                <span>Rất nhiều (1.0)</span>
+                                            </div>
+                                        </div>
 
-                                 <div className="pt-2">
-                                     <label className="flex items-center space-x-2 cursor-pointer w-fit">
-                                         <input 
-                                             type="checkbox"
-                                             checked={elevenLabsSettings.useSpeakerBoost}
-                                             onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, useSpeakerBoost: e.target.checked})}
-                                             className="rounded border-slate-600 bg-slate-700 text-[--color-primary-500] focus:ring-[--color-primary-500]"
-                                             disabled={isDisabled || getElevenLabsKeysList().length === 0}
-                                         />
-                                         <span className="text-xs text-slate-400">Speaker Boost (Tăng cường độ rõ của giọng)</span>
-                                         <InfoTooltip text="Tăng cường độ rõ ràng và âm lượng của giọng nói. Khuyên dùng để có chất lượng tốt nhất." />
-                                     </label>
-                                 </div>
-                             </div>
+                                        <div className="pt-4">
+                                            <label className="flex items-center space-x-2 cursor-pointer w-fit">
+                                                <input 
+                                                    type="checkbox"
+                                                    checked={elevenLabsSettings.useSpeakerBoost}
+                                                    onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, useSpeakerBoost: e.target.checked})}
+                                                    className="rounded border-slate-600 bg-slate-700 text-[--color-primary-500] focus:ring-[--color-primary-500]"
+                                                    disabled={isDisabled || getElevenLabsKeysList().length === 0}
+                                                />
+                                                <span className="text-xs text-slate-400">Speaker Boost (Tăng cường độ rõ của giọng)</span>
+                                                <InfoTooltip text="Tăng cường độ rõ ràng và âm lượng của giọng nói. Khuyên dùng để có chất lượng tốt nhất." />
+                                            </label>
+                                        </div>
+                                     </div>
+                                </div>
+                             )}
                          </div>
                     </>
                 )}

@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { generateSpeech, generateSpeechBytes } from './services/geminiService';
@@ -49,6 +50,7 @@ const App: React.FC = () => {
   const [selectedElevenLabsVoice, setSelectedElevenLabsVoice] = useState<string>('');
   const [selectedElevenLabsModel, setSelectedElevenLabsModel] = useState<string>('eleven_multilingual_v2');
   const [isLoadingElevenLabs, setIsLoadingElevenLabs] = useState<boolean>(false);
+  const [useCustomVoiceId, setUseCustomVoiceId] = useState<boolean>(false);
 
   // Common State
   const [audioResults, setAudioResults] = useState<AudioResult[]>([]);
@@ -82,7 +84,7 @@ const App: React.FC = () => {
     const root = document.documentElement;
     const themeColors = themes[theme];
     for (const [key, value] of Object.entries(themeColors)) {
-      root.style.setProperty(`--color-primary-${key}`, value);
+      root.style.setProperty(`--color-primary-${key}`, value as string);
     }
     localStorage.setItem('app-theme', theme);
   }, [theme]);
@@ -132,7 +134,7 @@ const App: React.FC = () => {
         ]).then(([voices, models]) => {
             setElevenLabsVoices(voices);
             setElevenLabsModels(models);
-            if (voices.length > 0) setSelectedElevenLabsVoice(voices[0].voice_id);
+            if (voices.length > 0 && !useCustomVoiceId) setSelectedElevenLabsVoice(voices[0].voice_id);
             // Ensure default model exists or select the first available one
             if (!models.some(m => m.model_id === selectedElevenLabsModel)) {
                  // Ưu tiên chọn các model phổ biến nếu có
@@ -148,7 +150,7 @@ const App: React.FC = () => {
             setIsLoadingElevenLabs(false);
         });
     }
-  }, [ttsProvider, getElevenLabsKeysList, elevenLabsBaseUrl, elevenLabsVoices.length, selectedElevenLabsModel]);
+  }, [ttsProvider, getElevenLabsKeysList, elevenLabsBaseUrl, elevenLabsVoices.length, selectedElevenLabsModel, useCustomVoiceId]);
 
 
   // Cleanup object URLs
@@ -607,22 +609,67 @@ const App: React.FC = () => {
                             )}
                         </div>
                          <div className="md:col-span-2">
-                            <label className="block text-sm font-medium text-slate-400 mb-2">Giọng đọc (Voice)</label>
+                            <div className="flex justify-between items-center mb-2">
+                                <label className="block text-sm font-medium text-slate-400">Giọng đọc (Voice)</label>
+                                <div className="flex items-center space-x-2">
+                                    <input
+                                        type="checkbox"
+                                        id="useCustomVoice"
+                                        checked={useCustomVoiceId}
+                                        onChange={(e) => {
+                                            setUseCustomVoiceId(e.target.checked);
+                                            // If switching back to list and current selection isn't in list, reset to first available
+                                            if (!e.target.checked && elevenLabsVoices.length > 0) {
+                                                 const exists = elevenLabsVoices.some(v => v.voice_id === selectedElevenLabsVoice);
+                                                 if (!exists) setSelectedElevenLabsVoice(elevenLabsVoices[0].voice_id);
+                                            }
+                                        }}
+                                        className="rounded border-slate-600 bg-slate-700 text-[--color-primary-500] focus:ring-[--color-primary-500]"
+                                        disabled={isDisabled || getElevenLabsKeysList().length === 0}
+                                    />
+                                    <label htmlFor="useCustomVoice" className="text-xs text-slate-400 cursor-pointer select-none">
+                                        Nhập Voice ID thủ công
+                                    </label>
+                                </div>
+                            </div>
+
                              <div className="flex items-center space-x-2">
-                                <select
-                                    value={selectedElevenLabsVoice}
-                                    onChange={(e) => setSelectedElevenLabsVoice(e.target.value)}
-                                    disabled={isDisabled || isLoadingElevenLabs || getElevenLabsKeysList().length === 0}
-                                    className="flex-grow bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 disabled:opacity-50"
+                                {useCustomVoiceId ? (
+                                    <input
+                                        type="text"
+                                        value={selectedElevenLabsVoice}
+                                        onChange={(e) => setSelectedElevenLabsVoice(e.target.value)}
+                                        placeholder="Nhập Voice ID (ví dụ: z9AwTVuN8C7iJ75jitEW)"
+                                        disabled={isDisabled || getElevenLabsKeysList().length === 0}
+                                        className="flex-grow bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors"
+                                    />
+                                ) : (
+                                    <select
+                                        value={selectedElevenLabsVoice}
+                                        onChange={(e) => setSelectedElevenLabsVoice(e.target.value)}
+                                        disabled={isDisabled || isLoadingElevenLabs || getElevenLabsKeysList().length === 0}
+                                        className="flex-grow bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 disabled:opacity-50"
+                                    >
+                                        {isLoadingElevenLabs && <option>Đang tải danh sách giọng...</option>}
+                                        {!isLoadingElevenLabs && elevenLabsVoices.length === 0 && <option>Không tìm thấy giọng (Kiểm tra Key)</option>}
+                                        {elevenLabsVoices.map(v => <option key={v.voice_id} value={v.voice_id}>{v.name}</option>)}
+                                    </select>
+                                )}
+                                
+                                <button 
+                                    onClick={handlePreviewVoice} 
+                                    disabled={isDisabled || getElevenLabsKeysList().length === 0 || !selectedElevenLabsVoice} 
+                                    className="p-3 rounded-lg bg-slate-700 hover:bg-[--color-primary-600]/50 disabled:opacity-50"
+                                    title="Nghe thử giọng này"
                                 >
-                                    {isLoadingElevenLabs && <option>Đang tải danh sách giọng...</option>}
-                                    {!isLoadingElevenLabs && elevenLabsVoices.length === 0 && <option>Không tìm thấy giọng (Kiểm tra Key)</option>}
-                                    {elevenLabsVoices.map(v => <option key={v.voice_id} value={v.voice_id}>{v.name}</option>)}
-                                </select>
-                                <button onClick={handlePreviewVoice} disabled={isDisabled || getElevenLabsKeysList().length === 0 || !selectedElevenLabsVoice} className="p-3 rounded-lg bg-slate-700 hover:bg-[--color-primary-600]/50 disabled:opacity-50">
                                     {isPreviewLoading ? <SpinnerIcon hasMargin={false} /> : <PlayIcon />}
                                 </button>
                             </div>
+                            {useCustomVoiceId && (
+                                <p className="text-xs text-slate-500 mt-1">
+                                    Lưu ý: Đảm bảo Voice ID hợp lệ và bạn có quyền truy cập.
+                                </p>
+                            )}
                         </div>
                     </>
                 )}

@@ -32,6 +32,19 @@ const geminiVoiceOptions = [
   { id: 'rasalgethi', name: 'Nam: Rasalgethi (Rõ ràng)' },
 ];
 
+// Tooltip Component
+const InfoTooltip: React.FC<{ text: string }> = ({ text }) => (
+  <div className="group relative ml-1.5 inline-flex items-center cursor-help z-10">
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-slate-500 transition-colors group-hover:text-[--color-primary-400]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+    </svg>
+    <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 w-56 -translate-x-1/2 rounded-lg bg-slate-800 p-3 text-xs leading-relaxed text-slate-200 opacity-0 shadow-xl ring-1 ring-slate-600 transition-all duration-200 group-hover:opacity-100 group-hover:translate-y-0 translate-y-2">
+      {text}
+      <div className="absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-slate-600"></div>
+    </div>
+  </div>
+);
+
 const App: React.FC = () => {
   const [fileContent, setFileContent] = useState<string>('');
   const [fileType, setFileType] = useState<'txt' | 'srt' | null>(null);
@@ -145,8 +158,8 @@ const App: React.FC = () => {
     // Split by whitespace and filter empty strings
     const wordCount = textToCheck.trim().split(/\s+/).filter(w => w.length > 0).length;
     
-    // Calculate seconds based on 250 words per minute
-    const totalSeconds = (wordCount / 250) * 60;
+    // Calculate seconds based on 150 words per minute
+    const totalSeconds = (wordCount / 150) * 60;
     const minutes = Math.floor(totalSeconds / 60);
     const seconds = Math.round(totalSeconds % 60);
 
@@ -581,7 +594,7 @@ const App: React.FC = () => {
                     <span>Số từ: <span className="text-slate-200 font-medium">{contentStats.wordCount}</span></span>
                     <span>Ước tính thời lượng: <span className="text-slate-200 font-medium">
                         {contentStats.minutes > 0 ? `${contentStats.minutes} phút ` : ''}{contentStats.seconds} giây
-                    </span> (250 từ/phút)</span>
+                    </span> (150 từ/phút)</span>
                 </div>
             )}
           </div>
@@ -754,8 +767,11 @@ const App: React.FC = () => {
                              <div className="space-y-5">
                                  {/* Stability */}
                                  <div>
-                                     <div className="flex justify-between text-xs text-slate-400 mb-1">
-                                         <span>Stability (Ổn định)</span>
+                                     <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                                         <div className="flex items-center">
+                                            <span>Stability (Ổn định)</span>
+                                            <InfoTooltip text="Độ ổn định càng cao, giọng đọc càng đều nhưng có thể đơn điệu. Giảm thấp để giọng cảm xúc và biến đổi nhiều hơn." />
+                                         </div>
                                          <span className="text-[--color-primary-300] font-mono">{elevenLabsSettings.stability.toFixed(2)}</span>
                                      </div>
                                      <input
@@ -776,8 +792,11 @@ const App: React.FC = () => {
 
                                  {/* Similarity Boost */}
                                  <div>
-                                     <div className="flex justify-between text-xs text-slate-400 mb-1">
-                                         <span>Similarity Boost (Độ tương đồng)</span>
+                                     <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                                         <div className="flex items-center">
+                                            <span>Similarity Boost (Độ tương đồng)</span>
+                                            <InfoTooltip text="Quyết định mức độ bám sát giọng gốc. Giá trị quá cao có thể gây nhiễu âm thanh, quá thấp giọng sẽ nghe chung chung." />
+                                         </div>
                                          <span className="text-[--color-primary-300] font-mono">{elevenLabsSettings.similarityBoost.toFixed(2)}</span>
                                      </div>
                                      <input
@@ -798,8 +817,11 @@ const App: React.FC = () => {
 
                                  {/* Style Exaggeration */}
                                  <div>
-                                     <div className="flex justify-between text-xs text-slate-400 mb-1">
-                                         <span>Style Exaggeration (Phóng đại phong cách)</span>
+                                     <div className="flex items-center justify-between text-xs text-slate-400 mb-1">
+                                         <div className="flex items-center">
+                                            <span>Style Exaggeration (Phóng đại phong cách)</span>
+                                            <InfoTooltip text="Cường điệu hóa phong cách của model. Tăng lên để giọng điệu mạnh mẽ hơn, nhưng quá cao có thể gây mất tự nhiên." />
+                                         </div>
                                          <span className="text-[--color-primary-300] font-mono">{elevenLabsSettings.style.toFixed(2)}</span>
                                      </div>
                                      <input
@@ -819,7 +841,7 @@ const App: React.FC = () => {
                                  </div>
 
                                  <div className="pt-2">
-                                     <label className="flex items-center space-x-2 cursor-pointer">
+                                     <label className="flex items-center space-x-2 cursor-pointer w-fit">
                                          <input 
                                              type="checkbox"
                                              checked={elevenLabsSettings.useSpeakerBoost}
@@ -828,6 +850,7 @@ const App: React.FC = () => {
                                              disabled={isDisabled || getElevenLabsKeysList().length === 0}
                                          />
                                          <span className="text-xs text-slate-400">Speaker Boost (Tăng cường độ rõ của giọng)</span>
+                                         <InfoTooltip text="Tăng cường độ rõ ràng và âm lượng của giọng nói. Khuyên dùng để có chất lượng tốt nhất." />
                                      </label>
                                  </div>
                              </div>

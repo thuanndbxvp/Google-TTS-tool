@@ -42,7 +42,8 @@ const App: React.FC = () => {
   const [selectedRegion, setSelectedRegion] = useState<string>('bac'); 
 
   // ElevenLabs State
-  const [elevenLabsApiKey, setElevenLabsApiKey] = useState<string>('');
+  const [elevenLabsApiKey, setElevenLabsApiKey] = useState<string>(''); // Raw string with newlines
+  const [elevenLabsBaseUrl, setElevenLabsBaseUrl] = useState<string>('https://api.elevenlabs.io/v1');
   const [elevenLabsVoices, setElevenLabsVoices] = useState<ElevenLabsVoice[]>([]);
   const [elevenLabsModels, setElevenLabsModels] = useState<ElevenLabsModel[]>([]);
   const [selectedElevenLabsVoice, setSelectedElevenLabsVoice] = useState<string>('');
@@ -73,7 +74,7 @@ const App: React.FC = () => {
         setTheme(savedTheme as ThemeName);
       }
     } catch (e) {
-       console.error(String(e as any));
+       console.error(e);
     }
   }, []);
 
@@ -92,6 +93,7 @@ const App: React.FC = () => {
       const savedKeys = localStorage.getItem('apiKeys');
       const savedActiveKeyId = localStorage.getItem('activeApiKeyId');
       const savedElevenLabsKey = localStorage.getItem('elevenLabsApiKey');
+      const savedElevenLabsBaseUrl = localStorage.getItem('elevenLabsBaseUrl');
 
       if (savedKeys) {
         const keys = JSON.parse(savedKeys);
@@ -105,22 +107,28 @@ const App: React.FC = () => {
         }
       }
       
-      if (savedElevenLabsKey) {
-          setElevenLabsApiKey(savedElevenLabsKey);
-      }
+      if (savedElevenLabsKey) setElevenLabsApiKey(savedElevenLabsKey);
+      if (savedElevenLabsBaseUrl) setElevenLabsBaseUrl(savedElevenLabsBaseUrl);
 
     } catch (error) {
       console.error(error);
     }
   }, []);
 
+  // Helper to get array of keys
+  const getElevenLabsKeysList = useCallback(() => {
+      return elevenLabsApiKey.split('\n').map(k => k.trim()).filter(k => k.length > 0);
+  }, [elevenLabsApiKey]);
+
   // Fetch ElevenLabs Data when key is available and provider is selected
   useEffect(() => {
-    if (ttsProvider === 'elevenlabs' && elevenLabsApiKey && elevenLabsVoices.length === 0) {
+    const keys = getElevenLabsKeysList();
+    if (ttsProvider === 'elevenlabs' && keys.length > 0 && elevenLabsVoices.length === 0) {
         setIsLoadingElevenLabs(true);
+        // Use the first key for meta-data fetching
         Promise.all([
-            fetchElevenLabsVoices(elevenLabsApiKey),
-            fetchElevenLabsModels(elevenLabsApiKey)
+            fetchElevenLabsVoices(keys[0], elevenLabsBaseUrl),
+            fetchElevenLabsModels(keys[0], elevenLabsBaseUrl)
         ]).then(([voices, models]) => {
             setElevenLabsVoices(voices);
             setElevenLabsModels(models);
@@ -140,7 +148,7 @@ const App: React.FC = () => {
             setIsLoadingElevenLabs(false);
         });
     }
-  }, [ttsProvider, elevenLabsApiKey, elevenLabsVoices.length, selectedElevenLabsModel]);
+  }, [ttsProvider, getElevenLabsKeysList, elevenLabsBaseUrl, elevenLabsVoices.length, selectedElevenLabsModel]);
 
 
   // Cleanup object URLs
@@ -161,9 +169,11 @@ const App: React.FC = () => {
     localStorage.setItem('activeApiKeyId', id.toString());
   }, []);
 
-  const saveElevenLabsKey = (key: string) => {
-      setElevenLabsApiKey(key);
-      localStorage.setItem('elevenLabsApiKey', key);
+  const saveElevenLabsConfig = (keys: string, baseUrl: string) => {
+      setElevenLabsApiKey(keys);
+      setElevenLabsBaseUrl(baseUrl || 'https://api.elevenlabs.io/v1');
+      localStorage.setItem('elevenLabsApiKey', keys);
+      localStorage.setItem('elevenLabsBaseUrl', baseUrl || 'https://api.elevenlabs.io/v1');
       // Clear cached data to force refetch if key changes
       setElevenLabsVoices([]); 
       setElevenLabsModels([]);
@@ -266,9 +276,11 @@ const App: React.FC = () => {
       if (ttsProvider === 'gemini') {
            audioUrl = await performApiCallWithRetry(generateSpeech, sampleText, selectedGeminiVoice);
       } else {
-           if (!elevenLabsApiKey) throw new Error("Vui lòng nhập API Key ElevenLabs");
+           const keys = getElevenLabsKeysList();
+           if (keys.length === 0) throw new Error("Vui lòng nhập API Key ElevenLabs");
            const langCode = getElevenLabsLanguageCode();
-           const bytes = await generateElevenLabsSpeechBytes(sampleText, selectedElevenLabsVoice, selectedElevenLabsModel, elevenLabsApiKey, langCode);
+           // Use first key for preview
+           const bytes = await generateElevenLabsSpeechBytes(sampleText, selectedElevenLabsVoice, selectedElevenLabsModel, keys[0], langCode, elevenLabsBaseUrl);
            const blob = createWavBlob(bytes);
            audioUrl = URL.createObjectURL(blob);
       }
@@ -308,7 +320,8 @@ const App: React.FC = () => {
       setError('Vui lòng nhập nội dung.');
       return;
     }
-    if (ttsProvider === 'elevenlabs' && !elevenLabsApiKey) {
+    const elevenLabsKeys = getElevenLabsKeysList();
+    if (ttsProvider === 'elevenlabs' && elevenLabsKeys.length === 0) {
         setError('Vui lòng cấu hình API Key ElevenLabs.');
         setIsModalOpen(true);
         return;
@@ -361,9 +374,10 @@ const App: React.FC = () => {
                  // Delay for Gemini Rate Limit
                  if (i < subtitles.length - 1) await new Promise(r => setTimeout(r, 21000));
             } else {
-                 speechBytes = await generateElevenLabsSpeechBytes(sub.text, selectedElevenLabsVoice, selectedElevenLabsModel, elevenLabsApiKey, langCode);
-                 // Smaller delay for ElevenLabs (mostly for network stability, they have different rate limits)
-                 // Note: ElevenLabs is expensive for SRTs!
+                 // Rotate keys: Use modulus to cycle through keys
+                 const keyToUse = elevenLabsKeys[i % elevenLabsKeys.length];
+                 speechBytes = await generateElevenLabsSpeechBytes(sub.text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl);
+                 // Smaller delay for ElevenLabs
             }
 
             audioChunks.push(speechBytes);
@@ -395,7 +409,9 @@ const App: React.FC = () => {
                  audioUrl = await performApiCallWithRetry(generateSpeech, textToRead, selectedGeminiVoice);
                  if (i < paragraphs.length - 1) await new Promise(r => setTimeout(r, 21000));
             } else {
-                 speechBytes = await generateElevenLabsSpeechBytes(p, selectedElevenLabsVoice, selectedElevenLabsModel, elevenLabsApiKey, langCode);
+                 // Rotate keys
+                 const keyToUse = elevenLabsKeys[i % elevenLabsKeys.length];
+                 speechBytes = await generateElevenLabsSpeechBytes(p, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl);
                  const blob = createWavBlob(speechBytes);
                  audioUrl = URL.createObjectURL(blob);
             }
@@ -563,7 +579,7 @@ const App: React.FC = () => {
                 ) : (
                     <>
                          {/* ElevenLabs Controls */}
-                         {!elevenLabsApiKey && (
+                         {getElevenLabsKeysList().length === 0 && (
                              <div className="md:col-span-2 bg-yellow-500/10 border border-yellow-500/50 text-yellow-200 p-3 rounded-lg text-sm mb-2">
                                  Bạn cần nhập API Key của ElevenLabs trong phần cài đặt (nút Chìa khóa).
                              </div>
@@ -576,7 +592,7 @@ const App: React.FC = () => {
                             <select
                                 value={selectedElevenLabsModel}
                                 onChange={(e) => setSelectedElevenLabsModel(e.target.value)}
-                                disabled={isDisabled || isLoadingElevenLabs || !elevenLabsApiKey}
+                                disabled={isDisabled || isLoadingElevenLabs || getElevenLabsKeysList().length === 0}
                                 className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 disabled:opacity-50"
                             >
                                 {elevenLabsModels.length > 0 
@@ -596,14 +612,14 @@ const App: React.FC = () => {
                                 <select
                                     value={selectedElevenLabsVoice}
                                     onChange={(e) => setSelectedElevenLabsVoice(e.target.value)}
-                                    disabled={isDisabled || isLoadingElevenLabs || !elevenLabsApiKey}
+                                    disabled={isDisabled || isLoadingElevenLabs || getElevenLabsKeysList().length === 0}
                                     className="flex-grow bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 disabled:opacity-50"
                                 >
                                     {isLoadingElevenLabs && <option>Đang tải danh sách giọng...</option>}
                                     {!isLoadingElevenLabs && elevenLabsVoices.length === 0 && <option>Không tìm thấy giọng (Kiểm tra Key)</option>}
                                     {elevenLabsVoices.map(v => <option key={v.voice_id} value={v.voice_id}>{v.name}</option>)}
                                 </select>
-                                <button onClick={handlePreviewVoice} disabled={isDisabled || !elevenLabsApiKey || !selectedElevenLabsVoice} className="p-3 rounded-lg bg-slate-700 hover:bg-[--color-primary-600]/50 disabled:opacity-50">
+                                <button onClick={handlePreviewVoice} disabled={isDisabled || getElevenLabsKeysList().length === 0 || !selectedElevenLabsVoice} className="p-3 rounded-lg bg-slate-700 hover:bg-[--color-primary-600]/50 disabled:opacity-50">
                                     {isPreviewLoading ? <SpinnerIcon hasMargin={false} /> : <PlayIcon />}
                                 </button>
                             </div>
@@ -619,7 +635,7 @@ const App: React.FC = () => {
             )}
              {ttsProvider === 'elevenlabs' && (
               <p className="text-xs text-slate-500 pt-4 text-center">
-                Lưu ý: ElevenLabs tính phí theo ký tự. Sử dụng file SRT lớn sẽ tiêu tốn nhiều credits.
+                Mẹo: Nhập nhiều API Key để hệ thống tự động xoay vòng và tránh lỗi giới hạn.
               </p>
             )}
           </div>
@@ -715,7 +731,8 @@ const App: React.FC = () => {
         onDeleteKey={handleDeleteKey}
         onSetActiveKey={(id) => { setActiveKeyId(id); localStorage.setItem('activeApiKeyId', id.toString()); }}
         elevenLabsApiKey={elevenLabsApiKey}
-        onElevenLabsKeyChange={saveElevenLabsKey}
+        elevenLabsBaseUrl={elevenLabsBaseUrl}
+        onElevenLabsConfigChange={saveElevenLabsConfig}
       />
     </div>
   );

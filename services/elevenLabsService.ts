@@ -2,12 +2,15 @@
 import { ElevenLabsVoice, ElevenLabsModel } from "../types";
 import { decodeAudioDataToPcm } from "../utils/audioUtils";
 
-const API_BASE = "https://api.elevenlabs.io/v1";
+const DEFAULT_API_BASE = "https://api.elevenlabs.io/v1";
 
-export async function fetchElevenLabsVoices(apiKey: string): Promise<ElevenLabsVoice[]> {
+export async function fetchElevenLabsVoices(apiKey: string, baseUrl: string = DEFAULT_API_BASE): Promise<ElevenLabsVoice[]> {
   if (!apiKey) throw new Error("ElevenLabs API Key is required");
 
-  const response = await fetch(`${API_BASE}/voices`, {
+  // Remove trailing slash if present
+  const cleanBaseUrl = baseUrl.replace(/\/$/, "");
+
+  const response = await fetch(`${cleanBaseUrl}/voices`, {
     headers: {
       "xi-api-key": apiKey,
     },
@@ -26,10 +29,12 @@ export async function fetchElevenLabsVoices(apiKey: string): Promise<ElevenLabsV
   }));
 }
 
-export async function fetchElevenLabsModels(apiKey: string): Promise<ElevenLabsModel[]> {
+export async function fetchElevenLabsModels(apiKey: string, baseUrl: string = DEFAULT_API_BASE): Promise<ElevenLabsModel[]> {
   if (!apiKey) throw new Error("ElevenLabs API Key is required");
 
-  const response = await fetch(`${API_BASE}/models`, {
+  const cleanBaseUrl = baseUrl.replace(/\/$/, "");
+
+  const response = await fetch(`${cleanBaseUrl}/models`, {
     headers: {
       "xi-api-key": apiKey,
     },
@@ -57,10 +62,13 @@ export async function generateElevenLabsSpeechBytes(
   voiceId: string,
   modelId: string,
   apiKey: string,
-  languageCode?: string // Added language code parameter
+  languageCode?: string,
+  baseUrl: string = DEFAULT_API_BASE
 ): Promise<Uint8Array> {
   if (!apiKey) throw new Error("ElevenLabs API Key is required");
   if (!text.trim()) return new Uint8Array(0);
+
+  const cleanBaseUrl = baseUrl.replace(/\/$/, "");
 
   const body: any = {
     text,
@@ -76,7 +84,7 @@ export async function generateElevenLabsSpeechBytes(
     body.language_code = languageCode;
   }
 
-  const response = await fetch(`${API_BASE}/text-to-speech/${voiceId}`, {
+  const response = await fetch(`${cleanBaseUrl}/text-to-speech/${voiceId}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

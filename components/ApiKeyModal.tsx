@@ -1,5 +1,5 @@
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ApiKey } from '../types';
 import { KeyIcon } from './icons/KeyIcon';
 
@@ -12,8 +12,9 @@ interface ApiKeyModalProps {
   onDeleteKey: (id: number) => void;
   onSetActiveKey: (id: number) => void;
   // ElevenLabs props
-  elevenLabsApiKey: string;
-  onElevenLabsKeyChange: (key: string) => void;
+  elevenLabsApiKey: string; // This now holds multi-line string
+  elevenLabsBaseUrl: string;
+  onElevenLabsConfigChange: (keys: string, baseUrl: string) => void;
 }
 
 const maskApiKey = (key: string): string => {
@@ -33,11 +34,20 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
   onDeleteKey,
   onSetActiveKey,
   elevenLabsApiKey,
-  onElevenLabsKeyChange
+  elevenLabsBaseUrl,
+  onElevenLabsConfigChange
 }) => {
   const [newKeyInput, setNewKeyInput] = useState('');
-  const [elevenLabsInput, setElevenLabsInput] = useState(elevenLabsApiKey);
+  
+  // ElevenLabs local state
+  const [elevenLabsKeysInput, setElevenLabsKeysInput] = useState(elevenLabsApiKey);
+  const [elevenLabsUrlInput, setElevenLabsUrlInput] = useState(elevenLabsBaseUrl);
   const [isEditingElevenLabs, setIsEditingElevenLabs] = useState(false);
+
+  useEffect(() => {
+    setElevenLabsKeysInput(elevenLabsApiKey);
+    setElevenLabsUrlInput(elevenLabsBaseUrl);
+  }, [elevenLabsApiKey, elevenLabsBaseUrl, isOpen]);
 
   if (!isOpen) {
     return null;
@@ -51,9 +61,11 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
   };
 
   const handleSaveElevenLabs = () => {
-    onElevenLabsKeyChange(elevenLabsInput.trim());
+    onElevenLabsConfigChange(elevenLabsKeysInput, elevenLabsUrlInput.trim());
     setIsEditingElevenLabs(false);
   }
+
+  const keyCount = elevenLabsApiKey.split('\n').filter(k => k.trim()).length;
 
   return (
     <div
@@ -138,40 +150,69 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
 
             {/* ElevenLabs Section */}
             <div className="mb-4 pt-6 border-t border-slate-600">
-              <h3 className="text-lg font-semibold text-white mb-2 flex items-center">
-                 <span className="bg-gradient-to-r from-orange-400 to-red-500 bg-clip-text text-transparent mr-2">ElevenLabs</span> API Key
+              <h3 className="text-lg font-semibold text-white mb-2 flex items-center justify-between">
+                 <div className="flex items-center">
+                    <span className="bg-gradient-to-r from-orange-400 to-red-500 bg-clip-text text-transparent mr-2">ElevenLabs</span>
+                 </div>
+                 {!isEditingElevenLabs && keyCount > 0 && (
+                    <span className="text-xs bg-slate-700 text-slate-300 px-2 py-1 rounded-full border border-slate-600">
+                        {keyCount} keys
+                    </span>
+                 )}
               </h3>
                <p className="text-slate-400 text-xs mb-4">
-                Sử dụng cho các giọng đọc cao cấp từ ElevenLabs.
+                Nhập nhiều API key (mỗi dòng 1 key) để tự động xoay vòng tránh lỗi spam.
               </p>
               
-              {!isEditingElevenLabs && elevenLabsApiKey ? (
-                <div className="bg-slate-700/50 p-3 rounded-lg flex items-center justify-between border border-slate-600">
-                   <div className="flex items-center">
-                      <KeyIcon />
-                      <span className="ml-3 font-mono text-slate-300">{maskApiKey(elevenLabsApiKey)}</span>
+              {!isEditingElevenLabs && keyCount > 0 ? (
+                <div className="bg-slate-700/50 p-3 rounded-lg border border-slate-600">
+                   <div className="flex items-center justify-between mb-2">
+                       <div className="flex items-center">
+                          <KeyIcon />
+                          <span className="ml-3 font-mono text-slate-300 text-sm">Đang sử dụng {keyCount} key(s)</span>
+                       </div>
+                       <button onClick={() => setIsEditingElevenLabs(true)} className="text-[--color-primary-400] hover:text-[--color-primary-300] text-sm font-semibold transition-colors">
+                          Cấu hình
+                       </button>
                    </div>
-                   <button onClick={() => setIsEditingElevenLabs(true)} className="text-[--color-primary-400] hover:text-[--color-primary-300] text-sm font-semibold transition-colors">
-                      Thay đổi
-                   </button>
+                   <div className="text-xs text-slate-500 truncate">
+                        API Endpoint: {elevenLabsBaseUrl || 'Mặc định'}
+                   </div>
                 </div>
               ) : (
-                 <div className="flex space-x-2">
-                    <input
-                        type="password"
-                        value={elevenLabsInput}
-                        onChange={(e) => setElevenLabsInput(e.target.value)}
-                        className="flex-grow w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-300 hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors duration-200"
-                        placeholder="Dán ElevenLabs API Key..."
-                    />
-                    <button onClick={handleSaveElevenLabs} className="bg-[--color-primary-600] hover:bg-[--color-primary-500] text-white font-semibold px-4 py-2 rounded-lg transition-colors whitespace-nowrap">
-                        Lưu
-                    </button>
-                     {isEditingElevenLabs && (
-                        <button onClick={() => { setIsEditingElevenLabs(false); setElevenLabsInput(elevenLabsApiKey); }} className="text-slate-400 hover:text-white px-2">
-                           Hủy
+                 <div className="space-y-3">
+                    <div>
+                        <label className="block text-xs font-medium text-slate-400 mb-1">Danh sách API Keys (Mỗi key một dòng)</label>
+                        <textarea
+                            value={elevenLabsKeysInput}
+                            onChange={(e) => setElevenLabsKeysInput(e.target.value)}
+                            className="w-full h-24 bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-300 text-sm font-mono hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors"
+                            placeholder="xi-api-key-1...&#10;xi-api-key-2..."
+                        />
+                    </div>
+                    <div>
+                         <label className="block text-xs font-medium text-slate-400 mb-1">
+                             Custom Base URL / Proxy Endpoint (Tùy chọn)
+                             <span className="block text-[10px] text-slate-500 font-normal">Sử dụng nếu bạn có Reverse Proxy riêng để ẩn IP (VD: https://my-proxy.com/v1)</span>
+                         </label>
+                         <input
+                            type="text"
+                            value={elevenLabsUrlInput}
+                            onChange={(e) => setElevenLabsUrlInput(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-300 text-sm hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] transition-colors"
+                            placeholder="https://api.elevenlabs.io/v1"
+                        />
+                    </div>
+                    <div className="flex space-x-2 justify-end">
+                         {isEditingElevenLabs && (
+                            <button onClick={() => { setIsEditingElevenLabs(false); setElevenLabsKeysInput(elevenLabsApiKey); setElevenLabsUrlInput(elevenLabsBaseUrl); }} className="text-slate-400 hover:text-white px-3 py-2 text-sm">
+                               Hủy
+                            </button>
+                         )}
+                        <button onClick={handleSaveElevenLabs} className="bg-[--color-primary-600] hover:bg-[--color-primary-500] text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm">
+                            Lưu Cấu Hình
                         </button>
-                     )}
+                    </div>
                 </div>
               )}
             </div>

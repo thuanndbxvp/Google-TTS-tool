@@ -1,5 +1,5 @@
 
-import { ElevenLabsVoice, ElevenLabsModel } from "../types";
+import { ElevenLabsVoice, ElevenLabsModel, ElevenLabsSettings } from "../types";
 import { decodeAudioDataToPcm } from "../utils/audioUtils";
 
 const DEFAULT_API_BASE = "https://api.elevenlabs.io/v1";
@@ -63,20 +63,26 @@ export async function generateElevenLabsSpeechBytes(
   modelId: string,
   apiKey: string,
   languageCode?: string,
-  baseUrl: string = DEFAULT_API_BASE
+  baseUrl: string = DEFAULT_API_BASE,
+  settings?: ElevenLabsSettings
 ): Promise<Uint8Array> {
   if (!apiKey) throw new Error("ElevenLabs API Key is required");
   if (!text.trim()) return new Uint8Array(0);
 
   const cleanBaseUrl = baseUrl.replace(/\/$/, "");
 
+  // Default settings if not provided
+  const voiceSettings = {
+    stability: settings?.stability ?? 0.5,
+    similarity_boost: settings?.similarityBoost ?? 0.75,
+    style: settings?.style ?? 0.0,
+    use_speaker_boost: settings?.useSpeakerBoost ?? true
+  };
+
   const body: any = {
     text,
     model_id: modelId,
-    voice_settings: {
-      stability: 0.5,
-      similarity_boost: 0.75,
-    },
+    voice_settings: voiceSettings,
   };
 
   // Some newer models support/require language_code for better performance

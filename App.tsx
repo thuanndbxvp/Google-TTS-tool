@@ -1,8 +1,9 @@
+
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import JSZip from 'jszip';
 import { generateSpeech, generateSpeechBytes } from './services/geminiService';
 import { fetchElevenLabsVoices, fetchElevenLabsModels, generateElevenLabsSpeechBytes } from './services/elevenLabsService';
-import { AudioResult, ApiKey, TtsProvider, ElevenLabsVoice, ElevenLabsModel } from './types';
+import { AudioResult, ApiKey, TtsProvider, ElevenLabsVoice, ElevenLabsModel, ElevenLabsSettings } from './types';
 import { FileUploader } from './components/FileUploader';
 import { AudioPlayer } from './components/AudioPlayer';
 import { SpinnerIcon } from './components/icons/SpinnerIcon';
@@ -50,6 +51,14 @@ const App: React.FC = () => {
   const [selectedElevenLabsModel, setSelectedElevenLabsModel] = useState<string>('eleven_multilingual_v2');
   const [isLoadingElevenLabs, setIsLoadingElevenLabs] = useState<boolean>(false);
   const [useCustomVoiceId, setUseCustomVoiceId] = useState<boolean>(false);
+  
+  // ElevenLabs Advanced Settings
+  const [elevenLabsSettings, setElevenLabsSettings] = useState<ElevenLabsSettings>({
+    stability: 0.5,
+    similarityBoost: 0.75,
+    style: 0.0,
+    useSpeakerBoost: true
+  });
 
   // Common State
   const [audioResults, setAudioResults] = useState<AudioResult[]>([]);
@@ -309,7 +318,7 @@ const App: React.FC = () => {
            if (keys.length === 0) throw new Error("Vui lòng nhập API Key ElevenLabs");
            const langCode = getElevenLabsLanguageCode();
            // Use first key for preview
-           const bytes = await generateElevenLabsSpeechBytes(sampleText, selectedElevenLabsVoice, selectedElevenLabsModel, keys[0], langCode, elevenLabsBaseUrl);
+           const bytes = await generateElevenLabsSpeechBytes(sampleText, selectedElevenLabsVoice, selectedElevenLabsModel, keys[0], langCode, elevenLabsBaseUrl, elevenLabsSettings);
            const blob = createWavBlob(bytes);
            audioUrl = URL.createObjectURL(blob);
       }
@@ -410,7 +419,7 @@ const App: React.FC = () => {
                  while (!success && attempts < elevenLabsKeys.length) {
                     const keyToUse = elevenLabsKeys[elevenLabsKeyIdx];
                     try {
-                        speechBytes = await generateElevenLabsSpeechBytes(sub.text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl);
+                        speechBytes = await generateElevenLabsSpeechBytes(sub.text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl, elevenLabsSettings);
                         success = true;
                         // On success, move to next key for next paragraph (Round Robin)
                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
@@ -459,7 +468,7 @@ const App: React.FC = () => {
                  while (!success && attempts < elevenLabsKeys.length) {
                     const keyToUse = elevenLabsKeys[elevenLabsKeyIdx];
                     try {
-                        speechBytes = await generateElevenLabsSpeechBytes(p, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl);
+                        speechBytes = await generateElevenLabsSpeechBytes(p, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl, elevenLabsSettings);
                         success = true;
                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
                     } catch (err) {
@@ -734,6 +743,95 @@ const App: React.FC = () => {
                                 </p>
                             )}
                         </div>
+
+                         {/* ElevenLabs Advanced Settings */}
+                         <div className="md:col-span-2 mt-4 p-4 bg-slate-900/30 rounded-lg border border-slate-700">
+                             <h3 className="text-sm font-semibold text-[--color-primary-300] mb-4 flex items-center">
+                                 <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4" /></svg>
+                                 Điều chỉnh Giọng Nói
+                             </h3>
+                             
+                             <div className="space-y-5">
+                                 {/* Stability */}
+                                 <div>
+                                     <div className="flex justify-between text-xs text-slate-400 mb-1">
+                                         <span>Stability (Ổn định)</span>
+                                         <span className="text-[--color-primary-300] font-mono">{elevenLabsSettings.stability.toFixed(2)}</span>
+                                     </div>
+                                     <input
+                                         type="range"
+                                         min="0"
+                                         max="1"
+                                         step="0.01"
+                                         value={elevenLabsSettings.stability}
+                                         onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, stability: parseFloat(e.target.value)})}
+                                         className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[--color-primary-500]"
+                                         disabled={isDisabled || getElevenLabsKeysList().length === 0}
+                                     />
+                                      <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                                         <span>Biến đổi (0.0)</span>
+                                         <span>Ổn định (1.0)</span>
+                                     </div>
+                                 </div>
+
+                                 {/* Similarity Boost */}
+                                 <div>
+                                     <div className="flex justify-between text-xs text-slate-400 mb-1">
+                                         <span>Similarity Boost (Độ tương đồng)</span>
+                                         <span className="text-[--color-primary-300] font-mono">{elevenLabsSettings.similarityBoost.toFixed(2)}</span>
+                                     </div>
+                                     <input
+                                         type="range"
+                                         min="0"
+                                         max="1"
+                                         step="0.01"
+                                         value={elevenLabsSettings.similarityBoost}
+                                         onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, similarityBoost: parseFloat(e.target.value)})}
+                                         className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[--color-primary-500]"
+                                         disabled={isDisabled || getElevenLabsKeysList().length === 0}
+                                     />
+                                     <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                                         <span>Thấp (0.0)</span>
+                                         <span>Cao (1.0)</span>
+                                     </div>
+                                 </div>
+
+                                 {/* Style Exaggeration */}
+                                 <div>
+                                     <div className="flex justify-between text-xs text-slate-400 mb-1">
+                                         <span>Style Exaggeration (Phóng đại phong cách)</span>
+                                         <span className="text-[--color-primary-300] font-mono">{elevenLabsSettings.style.toFixed(2)}</span>
+                                     </div>
+                                     <input
+                                         type="range"
+                                         min="0"
+                                         max="1"
+                                         step="0.01"
+                                         value={elevenLabsSettings.style}
+                                         onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, style: parseFloat(e.target.value)})}
+                                         className="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[--color-primary-500]"
+                                         disabled={isDisabled || getElevenLabsKeysList().length === 0}
+                                     />
+                                     <div className="flex justify-between text-[10px] text-slate-500 mt-1">
+                                         <span>Không (0.0)</span>
+                                         <span>Rất nhiều (1.0)</span>
+                                     </div>
+                                 </div>
+
+                                 <div className="pt-2">
+                                     <label className="flex items-center space-x-2 cursor-pointer">
+                                         <input 
+                                             type="checkbox"
+                                             checked={elevenLabsSettings.useSpeakerBoost}
+                                             onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, useSpeakerBoost: e.target.checked})}
+                                             className="rounded border-slate-600 bg-slate-700 text-[--color-primary-500] focus:ring-[--color-primary-500]"
+                                             disabled={isDisabled || getElevenLabsKeysList().length === 0}
+                                         />
+                                         <span className="text-xs text-slate-400">Speaker Boost (Tăng cường độ rõ của giọng)</span>
+                                     </label>
+                                 </div>
+                             </div>
+                         </div>
                     </>
                 )}
             </div>

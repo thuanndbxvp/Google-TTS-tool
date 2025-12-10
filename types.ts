@@ -23,3 +23,10 @@ export interface ElevenLabsModel {
   name: string;
   description?: string;
 }
+
+export interface ElevenLabsSettings {
+  stability: number;
+  similarityBoost: number;
+  style: number;
+  useSpeakerBoost: boolean;
+}

@@ -1,5 +1,4 @@
 
-
 const SAMPLE_RATE = 24000;
 const BITS_PER_SAMPLE = 16;
 const NUM_CHANNELS = 1;
@@ -14,6 +13,33 @@ export function decode(base64: string): Uint8Array {
     bytes[i] = binaryString.charCodeAt(i);
   }
   return bytes;
+}
+
+// Converts an ArrayBuffer (e.g. from MP3 fetch) to PCM Uint8Array using Web Audio API
+export async function decodeAudioDataToPcm(audioData: ArrayBuffer): Promise<Uint8Array> {
+  // We use an OfflineAudioContext to decode and resample to our target SAMPLE_RATE (24000)
+  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+  const audioCtx = new AudioContextClass({ sampleRate: SAMPLE_RATE });
+  const audioBuffer = await audioCtx.decodeAudioData(audioData);
+
+  const offlineCtx = new OfflineAudioContext(NUM_CHANNELS, audioBuffer.duration * SAMPLE_RATE, SAMPLE_RATE);
+  const source = offlineCtx.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(offlineCtx.destination);
+  source.start();
+
+  const renderedBuffer = await offlineCtx.startRendering();
+  const channelData = renderedBuffer.getChannelData(0); // Mono
+  
+  // Convert Float32 to Int16 PCM
+  const pcmData = new Int16Array(channelData.length);
+  for (let i = 0; i < channelData.length; i++) {
+    // Clamp values to [-1, 1]
+    const s = Math.max(-1, Math.min(1, channelData[i]));
+    pcmData[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+  }
+
+  return new Uint8Array(pcmData.buffer);
 }
 
 // Creates a WAV file Blob from raw PCM data (16-bit, 24kHz, mono).

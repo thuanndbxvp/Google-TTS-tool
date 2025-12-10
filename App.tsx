@@ -1,8 +1,8 @@
-
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import JSZip from 'jszip';
 import { generateSpeech, generateSpeechBytes } from './services/geminiService';
-import { AudioResult, ApiKey } from './types';
+import { fetchElevenLabsVoices, fetchElevenLabsModels, generateElevenLabsSpeechBytes } from './services/elevenLabsService';
+import { AudioResult, ApiKey, TtsProvider, ElevenLabsVoice, ElevenLabsModel } from './types';
 import { FileUploader } from './components/FileUploader';
 import { AudioPlayer } from './components/AudioPlayer';
 import { SpinnerIcon } from './components/icons/SpinnerIcon';
@@ -17,7 +17,7 @@ import { createSilence, concatenatePcm, getPcmDuration, createWavBlob } from './
 import { SrtResultPlayer } from './components/SrtResultPlayer';
 
 
-const voiceOptions = [
+const geminiVoiceOptions = [
   // Giọng Nữ
   { id: 'kore', name: 'Nữ: Kore (Trầm tĩnh)' },
   { id: 'zephyr', name: 'Nữ: Zephyr (Thân thiện)' },
@@ -34,9 +34,22 @@ const voiceOptions = [
 const App: React.FC = () => {
   const [fileContent, setFileContent] = useState<string>('');
   const [fileType, setFileType] = useState<'txt' | 'srt' | null>(null);
-  const [selectedVoice, setSelectedVoice] = useState<string>('kore');
-  const [selectedLanguage, setSelectedLanguage] = useState<string>('other'); // 'vietnam' or 'other'
-  const [selectedRegion, setSelectedRegion] = useState<string>('bac'); // 'bac', 'trung', 'nam'
+  const [ttsProvider, setTtsProvider] = useState<TtsProvider>('gemini');
+  
+  // Gemini State
+  const [selectedGeminiVoice, setSelectedGeminiVoice] = useState<string>('kore');
+  const [selectedLanguage, setSelectedLanguage] = useState<string>('other'); 
+  const [selectedRegion, setSelectedRegion] = useState<string>('bac'); 
+
+  // ElevenLabs State
+  const [elevenLabsApiKey, setElevenLabsApiKey] = useState<string>('');
+  const [elevenLabsVoices, setElevenLabsVoices] = useState<ElevenLabsVoice[]>([]);
+  const [elevenLabsModels, setElevenLabsModels] = useState<ElevenLabsModel[]>([]);
+  const [selectedElevenLabsVoice, setSelectedElevenLabsVoice] = useState<string>('');
+  const [selectedElevenLabsModel, setSelectedElevenLabsModel] = useState<string>('eleven_multilingual_v2');
+  const [isLoadingElevenLabs, setIsLoadingElevenLabs] = useState<boolean>(false);
+
+  // Common State
   const [audioResults, setAudioResults] = useState<AudioResult[]>([]);
   const [srtResult, setSrtResult] = useState<{ audioUrl: string } | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(false);
@@ -52,7 +65,7 @@ const App: React.FC = () => {
   const [activeKeyId, setActiveKeyId] = useState<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
 
-  // Load theme from localStorage
+  // Load theme
    useEffect(() => {
     try {
       const savedTheme = localStorage.getItem('app-theme');
@@ -60,57 +73,74 @@ const App: React.FC = () => {
         setTheme(savedTheme as ThemeName);
       }
     } catch (e) {
-      // FIX: Safely handle 'unknown' type from catch block by converting it to a string.
-      if (e instanceof Error) {
-        console.error(`Failed to load theme from localStorage: ${e.message}`);
-      } else {
-        console.error(`Failed to load theme from localStorage: ${String(e)}`);
-      }
+       console.error(String(e as any));
     }
   }, []);
 
-  // Apply and save theme
   useEffect(() => {
     const root = document.documentElement;
     const themeColors = themes[theme];
-    
     for (const [key, value] of Object.entries(themeColors)) {
       root.style.setProperty(`--color-primary-${key}`, value);
     }
     localStorage.setItem('app-theme', theme);
   }, [theme]);
   
-  // Load API keys from localStorage
+  // Load API keys
   useEffect(() => {
     try {
       const savedKeys = localStorage.getItem('apiKeys');
       const savedActiveKeyId = localStorage.getItem('activeApiKeyId');
+      const savedElevenLabsKey = localStorage.getItem('elevenLabsApiKey');
+
       if (savedKeys) {
         const keys = JSON.parse(savedKeys);
         setApiKeys(keys);
         if (savedActiveKeyId) {
           const activeId = parseInt(savedActiveKeyId, 10);
-          if (keys.some((k: ApiKey) => k.id === activeId)) {
-            setActiveKeyId(activeId);
-          } else if (keys.length > 0) {
-            setActiveKeyId(keys[0].id);
-            localStorage.setItem('activeApiKeyId', keys[0].id.toString());
-          }
+          if (keys.some((k: ApiKey) => k.id === activeId)) setActiveKeyId(activeId);
+          else if (keys.length > 0) setActiveKeyId(keys[0].id);
         } else if (keys.length > 0) {
            setActiveKeyId(keys[0].id);
-           localStorage.setItem('activeApiKeyId', keys[0].id.toString());
         }
       }
-    } catch (error) {
-      if (error instanceof Error) {
-        console.error(`Failed to load API keys from localStorage: ${error.message}`);
-      } else {
-        console.error(`Failed to load API keys from localStorage: ${String(error)}`);
+      
+      if (savedElevenLabsKey) {
+          setElevenLabsApiKey(savedElevenLabsKey);
       }
-      localStorage.removeItem('apiKeys');
-      localStorage.removeItem('activeApiKeyId');
+
+    } catch (error) {
+      console.error(error);
     }
-}, []);
+  }, []);
+
+  // Fetch ElevenLabs Data when key is available and provider is selected
+  useEffect(() => {
+    if (ttsProvider === 'elevenlabs' && elevenLabsApiKey && elevenLabsVoices.length === 0) {
+        setIsLoadingElevenLabs(true);
+        Promise.all([
+            fetchElevenLabsVoices(elevenLabsApiKey),
+            fetchElevenLabsModels(elevenLabsApiKey)
+        ]).then(([voices, models]) => {
+            setElevenLabsVoices(voices);
+            setElevenLabsModels(models);
+            if (voices.length > 0) setSelectedElevenLabsVoice(voices[0].voice_id);
+            // Ensure default model exists or select the first available one
+            if (!models.some(m => m.model_id === selectedElevenLabsModel)) {
+                 // Ưu tiên chọn các model phổ biến nếu có
+                 const preferredModel = models.find(m => m.model_id === 'eleven_multilingual_v2') 
+                                     || models.find(m => m.model_id === 'eleven_turbo_v2_5')
+                                     || models[0];
+                 if (preferredModel) setSelectedElevenLabsModel(preferredModel.model_id);
+            }
+            setError(null);
+        }).catch((err: any) => {
+            setError(`Không thể tải dữ liệu ElevenLabs: ${err?.message || String(err)}`);
+        }).finally(() => {
+            setIsLoadingElevenLabs(false);
+        });
+    }
+  }, [ttsProvider, elevenLabsApiKey, elevenLabsVoices.length, selectedElevenLabsModel]);
 
 
   // Cleanup object URLs
@@ -131,74 +161,58 @@ const App: React.FC = () => {
     localStorage.setItem('activeApiKeyId', id.toString());
   }, []);
 
+  const saveElevenLabsKey = (key: string) => {
+      setElevenLabsApiKey(key);
+      localStorage.setItem('elevenLabsApiKey', key);
+      // Clear cached data to force refetch if key changes
+      setElevenLabsVoices([]); 
+      setElevenLabsModels([]);
+  }
+
   const performApiCallWithRetry = useCallback(async <T extends any[], R>(
     apiFunction: (...args: [...T, string]) => Promise<R>,
     ...args: T
   ): Promise<R> => {
     if (apiKeys.length === 0) {
-      throw new Error('Không có API key nào được cấu hình. Vui lòng thêm một key.');
+      throw new Error('Không có API key Gemini nào được cấu hình.');
     }
   
     const startIndex = activeKeyId ? Math.max(0, apiKeys.findIndex(k => k.id === activeKeyId)) : 0;
-    
-    const orderedApiKeys = [
-      ...apiKeys.slice(startIndex),
-      ...apiKeys.slice(0, startIndex),
-    ];
+    const orderedApiKeys = [...apiKeys.slice(startIndex), ...apiKeys.slice(0, startIndex)];
   
     let lastError: Error | null = null;
   
     for (const key of orderedApiKeys) {
       try {
-        console.log(`Attempting API call with key ID: ${key.id}`);
         const result = await apiFunction(...args, key.key);
-  
-        if (key.id !== activeKeyId) {
-          console.log(`API call successful. Setting active key to ID: ${key.id}`);
-          updateActiveKey(key.id);
-        }
+        if (key.id !== activeKeyId) updateActiveKey(key.id);
         setError(null);
         return result;
-  
       } catch (err) {
         if (err instanceof Error) {
           lastError = err;
-          const isKeyError = err.message.includes('API key not valid') ||
-                             err.message.includes('API key is invalid') ||
-                             err.message.includes('permission to access');
-  
-          if (isKeyError) {
-            console.warn(`API Key ID ${key.id} failed: ${err.message}. Trying next key.`);
-            continue;
-          } else {
-            throw err;
-          }
+          const isKeyError = err.message.includes('API key not valid') || err.message.includes('API key is invalid') || err.message.includes('permission to access');
+          if (isKeyError) continue; else throw err;
         }
         throw err;
       }
     }
-  
-    throw new Error(`Tất cả các API key đều không thành công. Lỗi cuối cùng: ${lastError?.message || 'Lỗi không xác định'}`);
+    throw new Error(`Tất cả các API key đều không thành công. Lỗi: ${lastError?.message}`);
   }, [apiKeys, activeKeyId, updateActiveKey]);
 
   const handleFileSelect = useCallback((content: string, fileName: string) => {
     const extension = fileName.split('.').pop()?.toLowerCase();
-    if (extension === 'txt') {
-      setFileType('txt');
-    } else if (extension === 'srt') {
-      setFileType('srt');
-    } else {
+    if (extension === 'txt') setFileType('txt');
+    else if (extension === 'srt') setFileType('srt');
+    else {
       setFileType(null);
       setFileContent('');
-      setError('Tệp không hợp lệ. Vui lòng chọn tệp .txt hoặc .srt.');
+      setError('Tệp không hợp lệ.');
       return;
     }
-
     setFileContent(content);
     setAudioResults([]);
-    if (srtResult) {
-        URL.revokeObjectURL(srtResult.audioUrl);
-    }
+    if (srtResult) URL.revokeObjectURL(srtResult.audioUrl);
     setSrtResult(null);
     setError(null);
   }, [srtResult]);
@@ -221,24 +235,20 @@ const App: React.FC = () => {
     if (activeKeyId === id) {
       const newActiveKey = updatedKeys.length > 0 ? updatedKeys[0].id : null;
       setActiveKeyId(newActiveKey);
-      if (newActiveKey) {
-          localStorage.setItem('activeApiKeyId', newActiveKey.toString());
-      } else {
-          localStorage.removeItem('activeApiKeyId');
-      }
+      if (newActiveKey) localStorage.setItem('activeApiKeyId', newActiveKey.toString());
+      else localStorage.removeItem('activeApiKeyId');
     }
   };
 
-  const handleSetActiveKey = (id: number) => {
-    setActiveKeyId(id);
-    localStorage.setItem('activeApiKeyId', id.toString());
-    setIsModalOpen(false);
+  const getElevenLabsLanguageCode = () => {
+      // Map app language selection to ISO codes ElevenLabs might use (or for logic)
+      if (selectedLanguage === 'vietnam') return 'vi';
+      if (selectedLanguage === 'other') return 'en'; // Default or unspecified
+      return undefined;
   };
-  
 
   const handlePreviewVoice = async () => {
     if (isLoading || isPreviewLoading) return;
-  
     if (previewAudioRef.current) {
       previewAudioRef.current.pause();
       URL.revokeObjectURL(previewAudioRef.current.src);
@@ -247,28 +257,30 @@ const App: React.FC = () => {
   
     setIsPreviewLoading(true);
     setError(null);
-  
-    const sampleText = "Xin chào, đây là bản xem trước giọng nói của tôi.";
+    const sampleText = selectedLanguage === 'vietnam'
+        ? "Xin chào, đây là bản xem trước giọng nói của tôi."
+        : "Hello, this is a preview of my voice.";
     
     try {
-      const audioUrl = await performApiCallWithRetry(
-        generateSpeech,
-        sampleText,
-        selectedVoice
-      );
+      let audioUrl: string;
+      if (ttsProvider === 'gemini') {
+           audioUrl = await performApiCallWithRetry(generateSpeech, sampleText, selectedGeminiVoice);
+      } else {
+           if (!elevenLabsApiKey) throw new Error("Vui lòng nhập API Key ElevenLabs");
+           const langCode = getElevenLabsLanguageCode();
+           const bytes = await generateElevenLabsSpeechBytes(sampleText, selectedElevenLabsVoice, selectedElevenLabsModel, elevenLabsApiKey, langCode);
+           const blob = createWavBlob(bytes);
+           audioUrl = URL.createObjectURL(blob);
+      }
+
       const audio = new Audio(audioUrl);
       previewAudioRef.current = audio;
       
       const playPromise = audio.play();
       if (playPromise !== undefined) {
-        playPromise.catch(error => {
-          // FIX: Safely handle 'unknown' type from promise rejection by converting it to a string.
-          if (error instanceof Error) {
-            console.error(`Audio playback failed: ${error.message}`);
-          } else {
-            console.error(`Audio playback failed: ${String(error)}`);
-          }
-          setError("Không thể tự động phát âm thanh xem trước. Vui lòng kiểm tra cài đặt trình duyệt của bạn.");
+        playPromise.catch(e => {
+          console.error(e);
+          setError("Không thể tự động phát. Kiểm tra quyền trình duyệt.");
           URL.revokeObjectURL(audioUrl);
           setIsPreviewLoading(false);
         });
@@ -281,27 +293,25 @@ const App: React.FC = () => {
       };
       audio.onerror = () => {
            URL.revokeObjectURL(audioUrl);
-           setError('Không thể phát tệp âm thanh xem trước.');
+           setError('Không thể phát âm thanh xem trước.');
            setIsPreviewLoading(false);
            previewAudioRef.current = null;
       }
     } catch (err) {
-      // FIX: Safely handle 'unknown' type from catch block by converting it to a string.
-      if (err instanceof Error) {
-        console.error(`Error generating preview audio: ${err.message}`);
-        setError(`Lỗi khi tạo bản xem trước: ${err.message}`);
-      } else {
-        console.error(`Error generating preview audio: ${String(err)}`);
-        setError('Không thể tạo âm thanh xem trước.');
-      }
+      if (err instanceof Error) setError(`Lỗi: ${err.message}`);
       setIsPreviewLoading(false);
     }
   };
 
   const handleGenerateAudio = async () => {
     if (!fileContent) {
-      setError('Vui lòng tải lên một tệp văn bản hoặc nhập văn bản trước.');
+      setError('Vui lòng nhập nội dung.');
       return;
+    }
+    if (ttsProvider === 'elevenlabs' && !elevenLabsApiKey) {
+        setError('Vui lòng cấu hình API Key ElevenLabs.');
+        setIsModalOpen(true);
+        return;
     }
 
     setIsLoading(true);
@@ -311,103 +321,91 @@ const App: React.FC = () => {
     setSrtResult(null);
     setProgress(null);
 
-
-    const getRegionInstruction = (region: string, language: string): string => {
-      if (language !== 'vietnam') {
-        return 'Hãy đọc đoạn văn sau: ';
-      }
-      switch (region) {
-        case 'bac': return 'Nói bằng giọng miền Bắc: ';
-        case 'trung': return 'Nói bằng giọng miền Trung: ';
-        case 'nam': return 'Nói bằng giọng miền Nam: ';
-        default: return '';
-      }
+    const getInstruction = () => {
+        if (ttsProvider === 'elevenlabs') return ''; // ElevenLabs performs better without instructional prompting
+        if (selectedLanguage !== 'vietnam') return 'Hãy đọc đoạn văn sau: ';
+        switch (selectedRegion) {
+            case 'bac': return 'Nói bằng giọng miền Bắc: ';
+            case 'trung': return 'Nói bằng giọng miền Trung: ';
+            case 'nam': return 'Nói bằng giọng miền Nam: ';
+            default: return '';
+        }
     };
-    const instruction = getRegionInstruction(selectedRegion, selectedLanguage);
+    const instruction = getInstruction();
 
     try {
       if (fileType === 'srt') {
           const subtitles = parseSrt(fileContent);
           if (subtitles.length === 0) {
-            setError('Tệp SRT không chứa phụ đề hợp lệ hoặc trống.');
-            setIsLoading(false);
-            return;
+            throw new Error('SRT không hợp lệ.');
           }
 
           let currentTime = 0;
           const audioChunks: Uint8Array[] = [];
-          const totalSubtitles = subtitles.length;
-          setProgress({ current: 0, total: totalSubtitles });
+          setProgress({ current: 0, total: subtitles.length });
 
+          const langCode = ttsProvider === 'elevenlabs' ? getElevenLabsLanguageCode() : undefined;
 
-          for (let i = 0; i < totalSubtitles; i++) {
+          for (let i = 0; i < subtitles.length; i++) {
             const sub = subtitles[i];
-            setProgress({ current: i + 1, total: totalSubtitles });
+            setProgress({ current: i + 1, total: subtitles.length });
 
             const silenceDuration = sub.startTime - currentTime;
-            if (silenceDuration > 0) {
-              audioChunks.push(createSilence(silenceDuration));
+            if (silenceDuration > 0) audioChunks.push(createSilence(silenceDuration));
+
+            const textToRead = `${instruction}${sub.text}`;
+            let speechBytes: Uint8Array;
+
+            if (ttsProvider === 'gemini') {
+                 speechBytes = await performApiCallWithRetry(generateSpeechBytes, textToRead, selectedGeminiVoice);
+                 // Delay for Gemini Rate Limit
+                 if (i < subtitles.length - 1) await new Promise(r => setTimeout(r, 21000));
+            } else {
+                 speechBytes = await generateElevenLabsSpeechBytes(sub.text, selectedElevenLabsVoice, selectedElevenLabsModel, elevenLabsApiKey, langCode);
+                 // Smaller delay for ElevenLabs (mostly for network stability, they have different rate limits)
+                 // Note: ElevenLabs is expensive for SRTs!
             }
 
-            const textWithInstruction = `${instruction}${sub.text}`;
-            const speechBytes = await performApiCallWithRetry(
-              generateSpeechBytes,
-              textWithInstruction,
-              selectedVoice
-            );
             audioChunks.push(speechBytes);
-            
             const speechDuration = getPcmDuration(speechBytes);
             currentTime = sub.startTime + speechDuration;
-            
-            // Add a delay to avoid hitting API rate limits (e.g., 3 RPM for free tier)
-            if (i < totalSubtitles - 1) {
-              await new Promise(resolve => setTimeout(resolve, 21000)); // 21 seconds
-            }
           }
 
           const finalPcm = concatenatePcm(audioChunks);
           const finalWavBlob = createWavBlob(finalPcm);
-          const finalAudioUrl = URL.createObjectURL(finalWavBlob);
-          setSrtResult({ audioUrl: finalAudioUrl });
+          setSrtResult({ audioUrl: URL.createObjectURL(finalWavBlob) });
 
-      } else if (fileType === 'txt' || fileType === null) {
+      } else {
           const paragraphs = fileContent.split('\n').filter(p => p.trim() !== '');
-          if (paragraphs.length === 0) {
-            setError('Nội dung văn bản trống hoặc không chứa đoạn văn nào có thể đọc được.');
-            setIsLoading(false);
-            return;
-          }
+          if (paragraphs.length === 0) throw new Error('Không có nội dung.');
           
-          const totalParagraphs = paragraphs.length;
-          setProgress({ current: 0, total: totalParagraphs });
+          setProgress({ current: 0, total: paragraphs.length });
 
-          for (let i = 0; i < totalParagraphs; i++) {
+          const langCode = ttsProvider === 'elevenlabs' ? getElevenLabsLanguageCode() : undefined;
+
+          for (let i = 0; i < paragraphs.length; i++) {
             const p = paragraphs[i];
-            setProgress({ current: i + 1, total: totalParagraphs });
-            const textWithInstruction = `${instruction}${p}`;
-            const audioUrl = await performApiCallWithRetry(
-              generateSpeech,
-              textWithInstruction,
-              selectedVoice
-            );
+            setProgress({ current: i + 1, total: paragraphs.length });
+            const textToRead = `${instruction}${p}`;
             
-            setAudioResults(prevResults => [...prevResults, { id: i, text: p, audioUrl }]);
+            let audioUrl: string;
+            let speechBytes: Uint8Array;
 
-             // Add a delay to avoid hitting API rate limits
-            if (i < totalParagraphs - 1) {
-              await new Promise(resolve => setTimeout(resolve, 21000)); // 21 seconds
+            if (ttsProvider === 'gemini') {
+                 audioUrl = await performApiCallWithRetry(generateSpeech, textToRead, selectedGeminiVoice);
+                 if (i < paragraphs.length - 1) await new Promise(r => setTimeout(r, 21000));
+            } else {
+                 speechBytes = await generateElevenLabsSpeechBytes(p, selectedElevenLabsVoice, selectedElevenLabsModel, elevenLabsApiKey, langCode);
+                 const blob = createWavBlob(speechBytes);
+                 audioUrl = URL.createObjectURL(blob);
             }
+            
+            setAudioResults(prev => [...prev, { id: i, text: p, audioUrl }]);
           }
       }
     } catch (err) {
-      if (err instanceof Error) {
-        console.error(`Error generating audio: ${err.message}`);
-        setError(err.message);
-      } else {
-        console.error(`Error generating audio: ${String(err)}`);
-        setError('Tạo âm thanh thất bại do một lỗi không mong muốn.');
-      }
+      if (err instanceof Error) setError(err.message);
+      else setError('Lỗi không xác định.');
     } finally {
       setIsLoading(false);
       setProgress(null);
@@ -416,40 +414,22 @@ const App: React.FC = () => {
 
   const handleDownloadAll = async () => {
     if (audioResults.length === 0) return;
-  
     setIsZipping(true);
-    setError(null);
-  
     try {
       const zip = new JSZip();
-  
-      await Promise.all(
-        audioResults.map(async (result) => {
-          const response = await fetch(result.audioUrl);
-          const audioBlob = await response.blob();
-          zip.file(`segment_${result.id + 1}.wav`, audioBlob);
-        })
-      );
-  
+      await Promise.all(audioResults.map(async (res) => {
+          const blob = await (await fetch(res.audioUrl)).blob();
+          zip.file(`segment_${res.id + 1}.wav`, blob);
+      }));
       const zipBlob = await zip.generateAsync({ type: 'blob' });
-  
       const link = document.createElement('a');
       link.href = URL.createObjectURL(zipBlob);
       link.download = 'audio_clips.zip';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-      URL.revokeObjectURL(link.href);
-  
     } catch (err) {
-      // FIX: Safely handle 'unknown' type from catch block by converting it to a string.
-      if (err instanceof Error) {
-        console.error(`Failed to create zip file: ${err.message}`);
-        setError(`Không thể tạo tệp zip để tải xuống: ${err.message}`);
-      } else {
-        console.error(`Failed to create zip file: ${String(err)}`);
-        setError('Không thể tạo tệp zip để tải xuống do một lỗi không xác định.');
-      }
+      setError('Lỗi tạo zip.');
     } finally {
       setIsZipping(false);
     }
@@ -478,13 +458,13 @@ const App: React.FC = () => {
           <h1 className="text-2xl md:text-3xl font-bold text-center text-[--color-primary-400] transition-colors">
             Chuyển đổi Tệp Văn bản sang Giọng nói
           </h1>
-          <p className="text-center text-slate-400 mt-1">Cung cấp bởi Gemini TTS</p>
+          <p className="text-center text-slate-400 mt-1">Cung cấp bởi Gemini & ElevenLabs</p>
         </div>
         <div className="flex-1 flex items-center justify-end space-x-2">
             <button
               onClick={() => setIsModalOpen(true)}
               className="flex items-center space-x-2 px-3 py-2 rounded-lg text-slate-300 hover:bg-slate-700 transition-colors"
-              title="API Keys"
+              title="Cài đặt API Keys"
             >
               <KeyIcon />
               <span className="hidden md:inline">API Keys</span>
@@ -508,7 +488,7 @@ const App: React.FC = () => {
               value={fileContent}
               onChange={(e) => {
                 setFileContent(e.target.value);
-                setFileType(null); // Assume manual input is like TXT
+                setFileType(null);
               }}
               className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors duration-200 min-h-[200px]"
               placeholder="Dán hoặc gõ văn bản của bạn trực tiếp vào đây..."
@@ -517,74 +497,129 @@ const App: React.FC = () => {
           </div>
           
           <div>
-            <h2 className="text-xl font-semibold text-[--color-primary-300] mb-3 transition-colors">2. Tùy chọn Giọng đọc</h2>
+            <div className="flex justify-between items-center mb-3">
+                 <h2 className="text-xl font-semibold text-[--color-primary-300] transition-colors">2. Cấu hình Giọng đọc</h2>
+                 <div className="flex bg-slate-900 rounded-lg p-1 border border-slate-700">
+                    <button 
+                        onClick={() => setTtsProvider('gemini')}
+                        className={`px-3 py-1 text-sm rounded-md transition-all ${ttsProvider === 'gemini' ? 'bg-[--color-primary-600] text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                        disabled={isDisabled}
+                    >Gemini</button>
+                    <button 
+                        onClick={() => setTtsProvider('elevenlabs')}
+                        className={`px-3 py-1 text-sm rounded-md transition-all ${ttsProvider === 'elevenlabs' ? 'bg-[--color-primary-600] text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                         disabled={isDisabled}
+                    >ElevenLabs</button>
+                 </div>
+            </div>
+            
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Language Selection (Common for both, now enabled for ElevenLabs) */}
                 <div>
-                    <label htmlFor="language-select" className="block text-sm font-medium text-slate-400 mb-2">Ngôn ngữ</label>
+                    <label className="block text-sm font-medium text-slate-400 mb-2">Ngôn ngữ</label>
                     <select
-                        id="language-select"
                         value={selectedLanguage}
                         onChange={(e) => setSelectedLanguage(e.target.value)}
                         disabled={isDisabled}
-                        className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors duration-200"
-                        aria-label="Chọn ngôn ngữ"
+                        className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300"
                     >
                         <option value="vietnam">Việt Nam</option>
-                        <option value="other">Quốc tế</option>
+                        <option value="other">Quốc tế (English)</option>
                     </select>
                 </div>
-                <div>
-                    <label htmlFor="region-select" className="block text-sm font-medium text-slate-400 mb-2">Vùng miền</label>
-                    <select
-                    id="region-select"
-                    value={selectedRegion}
-                    onChange={(e) => setSelectedRegion(e.target.value)}
-                    disabled={isDisabled || selectedLanguage !== 'vietnam'}
-                    className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
-                    aria-label="Chọn vùng miền"
-                    >
-                    <option value="bac">Miền Bắc</option>
-                    <option value="trung">Miền Trung</option>
-                    <option value="nam">Miền Nam</option>
-                    </select>
-                </div>
-                <div className="md:col-span-2">
-                    <label htmlFor="voice-select" className="block text-sm font-medium text-slate-400 mb-2">Giọng đọc cụ thể</label>
-                    <div className="flex items-center space-x-2">
-                      <select
-                      id="voice-select"
-                      value={selectedVoice}
-                      onChange={(e) => setSelectedVoice(e.target.value)}
-                      disabled={isDisabled}
-                      className="flex-grow bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors duration-200"
-                      aria-label="Chọn giọng đọc"
-                      >
-                      {voiceOptions.map(voice => (
-                          <option key={voice.id} value={voice.id}>{voice.name}</option>
-                      ))}
-                      </select>
-                       <button
-                          onClick={handlePreviewVoice}
-                          disabled={isDisabled}
-                          className="flex-shrink-0 p-3 rounded-lg bg-slate-700 hover:bg-[--color-primary-600]/50 disabled:bg-slate-600 disabled:cursor-not-allowed transition-colors"
-                          title="Nghe thử giọng đọc đã chọn"
-                          aria-label="Nghe thử giọng đọc đã chọn"
-                      >
-                          {isPreviewLoading 
-                              ? <SpinnerIcon hasMargin={false} />
-                              : <PlayIcon />
-                          }
-                      </button>
-                    </div>
-                </div>
+
+                {ttsProvider === 'gemini' ? (
+                    <>
+                        <div>
+                            <label className="block text-sm font-medium text-slate-400 mb-2">Vùng miền (VN)</label>
+                            <select
+                            value={selectedRegion}
+                            onChange={(e) => setSelectedRegion(e.target.value)}
+                            disabled={isDisabled || selectedLanguage !== 'vietnam'}
+                            className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 disabled:opacity-50"
+                            >
+                            <option value="bac">Miền Bắc</option>
+                            <option value="trung">Miền Trung</option>
+                            <option value="nam">Miền Nam</option>
+                            </select>
+                        </div>
+                         <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-slate-400 mb-2">Giọng đọc</label>
+                            <div className="flex items-center space-x-2">
+                            <select
+                                value={selectedGeminiVoice}
+                                onChange={(e) => setSelectedGeminiVoice(e.target.value)}
+                                disabled={isDisabled}
+                                className="flex-grow bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300"
+                            >
+                                {geminiVoiceOptions.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+                            </select>
+                             <button onClick={handlePreviewVoice} disabled={isDisabled} className="p-3 rounded-lg bg-slate-700 hover:bg-[--color-primary-600]/50 disabled:opacity-50">
+                                {isPreviewLoading ? <SpinnerIcon hasMargin={false} /> : <PlayIcon />}
+                            </button>
+                            </div>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                         {/* ElevenLabs Controls */}
+                         {!elevenLabsApiKey && (
+                             <div className="md:col-span-2 bg-yellow-500/10 border border-yellow-500/50 text-yellow-200 p-3 rounded-lg text-sm mb-2">
+                                 Bạn cần nhập API Key của ElevenLabs trong phần cài đặt (nút Chìa khóa).
+                             </div>
+                         )}
+                         <div>
+                            {/* Empty placeholder or additional controls if needed */}
+                         </div>
+                         <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-slate-400 mb-2">Mô hình (Model)</label>
+                            <select
+                                value={selectedElevenLabsModel}
+                                onChange={(e) => setSelectedElevenLabsModel(e.target.value)}
+                                disabled={isDisabled || isLoadingElevenLabs || !elevenLabsApiKey}
+                                className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 disabled:opacity-50"
+                            >
+                                {elevenLabsModels.length > 0 
+                                    ? elevenLabsModels.map(m => <option key={m.model_id} value={m.model_id}>{m.name}</option>)
+                                    : <option value="eleven_multilingual_v2">Eleven Multilingual v2</option>
+                                }
+                            </select>
+                            {selectedLanguage === 'vietnam' && selectedElevenLabsModel.includes('english') && (
+                                <p className="text-xs text-yellow-500 mt-1">
+                                    Cảnh báo: Model 'English' có thể không đọc tốt tiếng Việt. Hãy chọn 'Multilingual' hoặc 'Turbo'.
+                                </p>
+                            )}
+                        </div>
+                         <div className="md:col-span-2">
+                            <label className="block text-sm font-medium text-slate-400 mb-2">Giọng đọc (Voice)</label>
+                             <div className="flex items-center space-x-2">
+                                <select
+                                    value={selectedElevenLabsVoice}
+                                    onChange={(e) => setSelectedElevenLabsVoice(e.target.value)}
+                                    disabled={isDisabled || isLoadingElevenLabs || !elevenLabsApiKey}
+                                    className="flex-grow bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 disabled:opacity-50"
+                                >
+                                    {isLoadingElevenLabs && <option>Đang tải danh sách giọng...</option>}
+                                    {!isLoadingElevenLabs && elevenLabsVoices.length === 0 && <option>Không tìm thấy giọng (Kiểm tra Key)</option>}
+                                    {elevenLabsVoices.map(v => <option key={v.voice_id} value={v.voice_id}>{v.name}</option>)}
+                                </select>
+                                <button onClick={handlePreviewVoice} disabled={isDisabled || !elevenLabsApiKey || !selectedElevenLabsVoice} className="p-3 rounded-lg bg-slate-700 hover:bg-[--color-primary-600]/50 disabled:opacity-50">
+                                    {isPreviewLoading ? <SpinnerIcon hasMargin={false} /> : <PlayIcon />}
+                                </button>
+                            </div>
+                        </div>
+                    </>
+                )}
             </div>
-            {selectedLanguage === 'vietnam' ? (
+            
+            {ttsProvider === 'gemini' && selectedLanguage === 'vietnam' && (
               <p className="text-xs text-slate-500 pt-4 text-center">
-                Lưu ý: Tính năng chọn giọng theo vùng miền là thử nghiệm và kết quả có thể không hoàn hảo.
+                Gemini: Tính năng chọn giọng theo vùng miền là thử nghiệm.
               </p>
-            ) : (
+            )}
+             {ttsProvider === 'elevenlabs' && (
               <p className="text-xs text-slate-500 pt-4 text-center">
-                Tool sẽ tự động nhận diện ngôn ngữ bạn nhập vào.
+                Lưu ý: ElevenLabs tính phí theo ký tự. Sử dụng file SRT lớn sẽ tiêu tốn nhiều credits.
               </p>
             )}
           </div>
@@ -640,20 +675,17 @@ const App: React.FC = () => {
                  {progress ? (
                   <>
                     <p className="mt-4">Đang xử lý... ({progress.current}/{progress.total})</p>
-                    <p className="text-sm text-slate-500 mt-1">Do giới hạn của API, có một khoảng trễ giữa các yêu cầu.</p>
+                    {ttsProvider === 'gemini' && <p className="text-sm text-slate-500 mt-1">Khoảng trễ giữa các yêu cầu được áp dụng để tránh lỗi API.</p>}
                   </>
                 ) : (
-                  <>
-                    <p className="mt-4">Đang tạo âm thanh, vui lòng đợi...</p>
-                    <p className="text-sm text-slate-500">Quá trình này có thể mất một lúc đối với các văn bản dài.</p>
-                  </>
+                  <p className="mt-4">Đang khởi tạo...</p>
                 )}
             </div>
           )}
 
           {!isLoading && audioResults.length === 0 && !srtResult && !error && (
             <div className="flex items-center justify-center text-slate-500 h-64">
-              {apiKeys.length === 0 ? 'Vui lòng thêm API key để bắt đầu.' : 'Các clip âm thanh sẽ xuất hiện ở đây sau khi được tạo.'}
+              Kết quả sẽ hiển thị ở đây.
             </div>
           )}
 
@@ -667,12 +699,7 @@ const App: React.FC = () => {
                {isLoading && (
                 <div className="flex flex-col items-center justify-center text-slate-400 py-8">
                   <SpinnerIcon hasMargin={false} />
-                  {progress && progress.current < progress.total && (
-                    <>
-                      <p className="mt-4">Đang xử lý... ({progress.current}/{progress.total})</p>
-                      <p className="text-sm text-slate-500 mt-1">Do giới hạn của API, có một khoảng trễ giữa các yêu cầu.</p>
-                    </>
-                  )}
+                  {progress && <p className="mt-4">Đang xử lý... ({progress.current}/{progress.total})</p>}
                 </div>
               )}
             </div>
@@ -686,7 +713,9 @@ const App: React.FC = () => {
         activeKeyId={activeKeyId}
         onAddKey={handleAddKey}
         onDeleteKey={handleDeleteKey}
-        onSetActiveKey={handleSetActiveKey}
+        onSetActiveKey={(id) => { setActiveKeyId(id); localStorage.setItem('activeApiKeyId', id.toString()); }}
+        elevenLabsApiKey={elevenLabsApiKey}
+        onElevenLabsKeyChange={saveElevenLabsKey}
       />
     </div>
   );

@@ -9,3 +9,17 @@ export interface ApiKey {
   id: number;
   key: string;
 }
+
+export type TtsProvider = 'gemini' | 'elevenlabs';
+
+export interface ElevenLabsVoice {
+  voice_id: string;
+  name: string;
+  preview_url?: string;
+}
+
+export interface ElevenLabsModel {
+  model_id: string;
+  name: string;
+  description?: string;
+}

@@ -1,9 +1,10 @@
+
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 // Remove JSZip import as we are moving to direct downloads
 // import JSZip from 'jszip'; 
 import { generateSpeech, generateSpeechBytes } from './services/geminiService';
 import { fetchElevenLabsVoices, fetchElevenLabsModels, generateElevenLabsSpeechBytes } from './services/elevenLabsService';
-import { AudioResult, TtsProvider, ElevenLabsVoice, ElevenLabsModel, ElevenLabsSettings } from './types';
+import { AudioResult, ApiKey, TtsProvider, ElevenLabsVoice, ElevenLabsModel, ElevenLabsSettings } from './types';
 import { FileUploader } from './components/FileUploader';
 import { AudioPlayer } from './components/AudioPlayer';
 import { SpinnerIcon } from './components/icons/SpinnerIcon';
@@ -32,21 +33,6 @@ const geminiVoiceOptions = [
   { id: 'rasalgethi', name: 'Nam: Rasalgethi (Rõ ràng)' },
 ];
 
-/**
- * Danh sách giọng nói đề xuất (Featured) từ ElevenLabs.
- * Đã cập nhật các ID chuẩn để tránh lỗi "Voice not found".
- */
-const elevenLabsFeaturedVoices = [
-  { id: 'wyWA56cQNU2KqUW4eCsI', name: 'Clyde - Full, Diplomatic and Inviting', tags: ['Nam', 'Anh-British', 'Ngoại giao'], desc: 'Giọng nam người Anh đầy quyền lực, sắc thái và hài hước.' },
-  { id: 'pNInz6ovfRbbqscEnH6S', name: 'Adam Stone', tags: ['Nam', 'Mỹ', 'Trầm ấm'], desc: 'Giọng nam trung niên, sâu lắng và thư giãn.' },
-  { id: 'iP95p4H8P506H6yPscm6', name: 'Christopher', tags: ['Nam', 'Anh-British', 'Kể chuyện'], desc: 'Giọng nam người Anh, rõ ràng, phù hợp đọc truyện.' },
-  { id: 'N2lVS1wzCLUEzyBA4ydS', name: 'Amelia', tags: ['Nữ', 'Mỹ', 'Nhiệt huyết'], desc: 'Giọng nữ trẻ trung, sôi nổi và biểu cảm.' },
-  { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel', tags: ['Nữ', 'Rõ ràng', 'Mỹ'], desc: 'Giọng nữ tiêu chuẩn, rất dễ nghe.' },
-  { id: 'ErXw797nc8o4QC6JB9qu', name: 'Antoni', tags: ['Nam', 'Thanh lịch', 'Mỹ'], desc: 'Giọng nam chuyên nghiệp, phù hợp thuyết minh.' },
-  { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella', tags: ['Nữ', 'Dịu dàng', 'Mỹ'], desc: 'Giọng nữ nhẹ nhàng, phù hợp cho nội dung chữa lành.' },
-  { id: 'AZnzlk1XhxPfqKpsCt9H', name: 'Domi', tags: ['Nam', 'Mạnh mẽ', 'Mỹ'], desc: 'Giọng nam đầy uy lực, phù hợp quảng cáo.' },
-];
-
 // Tooltip Component
 const InfoTooltip: React.FC<{ text: string }> = ({ text }) => (
   <div className="group relative ml-1.5 inline-flex items-center cursor-help z-10">
@@ -63,7 +49,7 @@ const InfoTooltip: React.FC<{ text: string }> = ({ text }) => (
 const App: React.FC = () => {
   const [fileContent, setFileContent] = useState<string>('');
   const [fileType, setFileType] = useState<'txt' | 'srt' | null>(null);
-  const [ttsProvider, setTtsProvider] = useState<TtsProvider>('elevenlabs');
+  const [ttsProvider, setTtsProvider] = useState<TtsProvider>('gemini');
   
   // Gemini State
   const [selectedGeminiVoice, setSelectedGeminiVoice] = useState<string>('kore');
@@ -79,7 +65,6 @@ const App: React.FC = () => {
   const [selectedElevenLabsModel, setSelectedElevenLabsModel] = useState<string>('eleven_multilingual_v2');
   const [isLoadingElevenLabs, setIsLoadingElevenLabs] = useState<boolean>(false);
   const [useCustomVoiceId, setUseCustomVoiceId] = useState<boolean>(false);
-  const [showFeaturedVoices, setShowFeaturedVoices] = useState<boolean>(true);
   
   // ElevenLabs Advanced Settings
   const [elevenLabsSettings, setElevenLabsSettings] = useState<ElevenLabsSettings>({
@@ -106,7 +91,9 @@ const App: React.FC = () => {
 
   const [progress, setProgress] = useState<{ current: number, total: number } | null>(null);
   
-  // Modal State
+  // API Key State
+  const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
+  const [activeKeyId, setActiveKeyId] = useState<number | null>(null);
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
 
   // Load theme
@@ -130,12 +117,26 @@ const App: React.FC = () => {
     localStorage.setItem('app-theme', theme);
   }, [theme]);
   
-  // Load ElevenLabs config
+  // Load API keys
   useEffect(() => {
     try {
+      const savedKeys = localStorage.getItem('apiKeys');
+      const savedActiveKeyId = localStorage.getItem('activeApiKeyId');
       const savedElevenLabsKey = localStorage.getItem('elevenLabsApiKey');
       const savedElevenLabsBaseUrl = localStorage.getItem('elevenLabsBaseUrl');
 
+      if (savedKeys) {
+        const keys = JSON.parse(savedKeys);
+        setApiKeys(keys);
+        if (savedActiveKeyId) {
+          const activeId = parseInt(savedActiveKeyId, 10);
+          if (keys.some((k: ApiKey) => k.id === activeId)) setActiveKeyId(activeId);
+          else if (keys.length > 0) setActiveKeyId(keys[0].id);
+        } else if (keys.length > 0) {
+           setActiveKeyId(keys[0].id);
+        }
+      }
+      
       if (savedElevenLabsKey) setElevenLabsApiKey(savedElevenLabsKey);
       if (savedElevenLabsBaseUrl) setElevenLabsBaseUrl(savedElevenLabsBaseUrl);
 
@@ -189,11 +190,7 @@ const App: React.FC = () => {
         ]).then(([voices, models]) => {
             setElevenLabsVoices(voices);
             setElevenLabsModels(models);
-            if (voices.length > 0 && !useCustomVoiceId && !selectedElevenLabsVoice) {
-                // Ưu tiên chọn Clyde nếu có trong danh sách tải về
-                const clyde = voices.find(v => v.voice_id === 'wyWA56cQNU2KqUW4eCsI');
-                setSelectedElevenLabsVoice(clyde ? clyde.voice_id : voices[0].voice_id);
-            }
+            if (voices.length > 0 && !useCustomVoiceId) setSelectedElevenLabsVoice(voices[0].voice_id);
             // Ensure default model exists or select the first available one
             if (!models.some(m => m.model_id === selectedElevenLabsModel)) {
                  // Ưu tiên chọn các model phổ biến nếu có
@@ -209,7 +206,7 @@ const App: React.FC = () => {
             setIsLoadingElevenLabs(false);
         });
     }
-  }, [ttsProvider, getElevenLabsKeysList, elevenLabsBaseUrl, elevenLabsVoices.length, selectedElevenLabsModel, useCustomVoiceId, selectedElevenLabsVoice]);
+  }, [ttsProvider, getElevenLabsKeysList, elevenLabsBaseUrl, elevenLabsVoices.length, selectedElevenLabsModel, useCustomVoiceId]);
 
 
   // Cleanup object URLs ONLY on unmount to prevent deleting active URLs during generation
@@ -233,6 +230,11 @@ const App: React.FC = () => {
      setSrtResult(null);
   };
 
+  const updateActiveKey = useCallback((id: number) => {
+    setActiveKeyId(id);
+    localStorage.setItem('activeApiKeyId', id.toString());
+  }, []);
+
   const saveElevenLabsConfig = (keys: string, baseUrl: string) => {
       setElevenLabsApiKey(keys);
       setElevenLabsBaseUrl(baseUrl || 'https://api.elevenlabs.io/v1');
@@ -242,6 +244,37 @@ const App: React.FC = () => {
       setElevenLabsVoices([]); 
       setElevenLabsModels([]);
   }
+
+  const performApiCallWithRetry = useCallback(async <T extends any[], R>(
+    apiFunction: (...args: [...T, string]) => Promise<R>,
+    ...args: T
+  ): Promise<R> => {
+    if (apiKeys.length === 0) {
+      throw new Error('Không có API key Gemini nào được cấu hình.');
+    }
+  
+    const startIndex = activeKeyId ? Math.max(0, apiKeys.findIndex(k => k.id === activeKeyId)) : 0;
+    const orderedApiKeys = [...apiKeys.slice(startIndex), ...apiKeys.slice(0, startIndex)];
+  
+    let lastError: Error | null = null;
+  
+    for (const key of orderedApiKeys) {
+      try {
+        const result = await apiFunction(...args, key.key);
+        if (key.id !== activeKeyId) updateActiveKey(key.id);
+        setError(null);
+        return result;
+      } catch (err) {
+        if (err instanceof Error) {
+          lastError = err;
+          const isKeyError = err.message.includes('API key not valid') || err.message.includes('API key is invalid') || err.message.includes('permission to access');
+          if (isKeyError) continue; else throw err;
+        }
+        throw err;
+      }
+    }
+    throw new Error(`Tất cả các API key đều không thành công. Lỗi: ${lastError?.message}`);
+  }, [apiKeys, activeKeyId, updateActiveKey]);
 
   const handleFileSelect = useCallback((content: string, fileName: string) => {
     const extension = fileName.split('.').pop()?.toLowerCase();
@@ -259,6 +292,29 @@ const App: React.FC = () => {
     setFileContent(content);
     setError(null);
   }, []);
+  
+  const handleAddKey = (key: string) => {
+    const newKey: ApiKey = { id: Date.now(), key };
+    const updatedKeys = [...apiKeys, newKey];
+    setApiKeys(updatedKeys);
+    localStorage.setItem('apiKeys', JSON.stringify(updatedKeys));
+    if (!activeKeyId) {
+      setActiveKeyId(newKey.id);
+      localStorage.setItem('activeApiKeyId', newKey.id.toString());
+    }
+  };
+
+  const handleDeleteKey = (id: number) => {
+    const updatedKeys = apiKeys.filter(key => key.id !== id);
+    setApiKeys(updatedKeys);
+    localStorage.setItem('apiKeys', JSON.stringify(updatedKeys));
+    if (activeKeyId === id) {
+      const newActiveKey = updatedKeys.length > 0 ? updatedKeys[0].id : null;
+      setActiveKeyId(newActiveKey);
+      if (newActiveKey) localStorage.setItem('activeApiKeyId', newActiveKey.toString());
+      else localStorage.removeItem('activeApiKeyId');
+    }
+  };
 
   const getElevenLabsLanguageCode = () => {
       // Map app language selection to ISO codes ElevenLabs might use (or for logic)
@@ -295,8 +351,7 @@ const App: React.FC = () => {
     try {
       let audioUrl: string;
       if (ttsProvider === 'gemini') {
-           // Fix: Call generateSpeech directly as it uses process.env.API_KEY internally
-           audioUrl = await generateSpeech(sampleText, selectedGeminiVoice);
+           audioUrl = await performApiCallWithRetry(generateSpeech, sampleText, selectedGeminiVoice);
       } else {
            const keys = getElevenLabsKeysList();
            if (keys.length === 0) throw new Error("Vui lòng nhập API Key ElevenLabs");
@@ -385,8 +440,7 @@ const App: React.FC = () => {
             let speechBytes: Uint8Array = new Uint8Array(0);
 
             if (ttsProvider === 'gemini') {
-                 // Fix: Call generateSpeechBytes directly as it uses process.env.API_KEY internally
-                 speechBytes = await generateSpeechBytes(textToRead, selectedGeminiVoice);
+                 speechBytes = await performApiCallWithRetry(generateSpeechBytes, textToRead, selectedGeminiVoice);
                  // Delay for Gemini Rate Limit
                  if (i < subtitles.length - 1) await new Promise(r => setTimeout(r, 21000));
             } else {
@@ -445,8 +499,7 @@ const App: React.FC = () => {
             let speechBytes: Uint8Array = new Uint8Array(0);
 
             if (ttsProvider === 'gemini') {
-                 // Fix: Call generateSpeech directly as it uses process.env.API_KEY internally
-                 audioUrl = await generateSpeech(textToRead, selectedGeminiVoice);
+                 audioUrl = await performApiCallWithRetry(generateSpeech, textToRead, selectedGeminiVoice);
                  if (i < paragraphs.length - 1) await new Promise(r => setTimeout(r, 21000));
             } else {
                  let attempts = 0;
@@ -507,8 +560,7 @@ const App: React.FC = () => {
         let speechBytes: Uint8Array = new Uint8Array(0);
 
         if (ttsProvider === 'gemini') {
-            // Fix: Call generateSpeech directly as it uses process.env.API_KEY internally
-            audioUrl = await generateSpeech(textToRead, selectedGeminiVoice);
+            audioUrl = await performApiCallWithRetry(generateSpeech, textToRead, selectedGeminiVoice);
         } else {
              // For regeneration, we just pick a random key to distribute load
              if (elevenLabsKeys.length === 0) throw new Error("No ElevenLabs keys");
@@ -625,7 +677,7 @@ const App: React.FC = () => {
               title="Cài đặt API Keys"
             >
               <KeyIcon />
-              <span className="hidden md:inline">Cài đặt</span>
+              <span className="hidden md:inline">API Keys</span>
             </button>
             <ThemeSelector currentTheme={theme} onThemeChange={setTheme} />
         </div>
@@ -674,15 +726,15 @@ const App: React.FC = () => {
                             <h2 className="text-xl font-semibold text-[--color-primary-300] transition-colors">2. Cấu hình Giọng đọc</h2>
                             <div className="flex bg-slate-900 rounded-lg p-1 border border-slate-700">
                                 <button 
-                                    onClick={() => setTtsProvider('elevenlabs')}
-                                    className={`px-3 py-1 text-sm rounded-md transition-all ${ttsProvider === 'elevenlabs' ? 'bg-[--color-primary-600] text-white shadow' : 'text-slate-400 hover:text-white'}`}
-                                    disabled={isDisabled}
-                                >ElevenLabs</button>
-                                <button 
                                     onClick={() => setTtsProvider('gemini')}
                                     className={`px-3 py-1 text-sm rounded-md transition-all ${ttsProvider === 'gemini' ? 'bg-[--color-primary-600] text-white shadow' : 'text-slate-400 hover:text-white'}`}
                                     disabled={isDisabled}
                                 >Gemini</button>
+                                <button 
+                                    onClick={() => setTtsProvider('elevenlabs')}
+                                    className={`px-3 py-1 text-sm rounded-md transition-all ${ttsProvider === 'elevenlabs' ? 'bg-[--color-primary-600] text-white shadow' : 'text-slate-400 hover:text-white'}`}
+                                    disabled={isDisabled}
+                                >ElevenLabs</button>
                             </div>
                         </div>
                         
@@ -738,7 +790,7 @@ const App: React.FC = () => {
                                     {/* ElevenLabs Controls */}
                                     {getElevenLabsKeysList().length === 0 && (
                                         <div className="bg-yellow-500/10 border border-yellow-500/50 text-yellow-200 p-3 rounded-lg text-sm mb-2">
-                                            Bạn cần nhập API Key của ElevenLabs trong phần cài đặt (nút Cài đặt).
+                                            Bạn cần nhập API Key của ElevenLabs trong phần cài đặt (nút Chìa khóa).
                                         </div>
                                     )}
                                     
@@ -765,12 +817,6 @@ const App: React.FC = () => {
                                         <div className="flex justify-between items-center mb-2">
                                             <label className="block text-sm font-medium text-slate-400">Giọng đọc (Voice)</label>
                                             <div className="flex items-center space-x-2">
-                                                <button
-                                                   onClick={() => setShowFeaturedVoices(!showFeaturedVoices)}
-                                                   className={`text-xs px-2 py-1 rounded border ${showFeaturedVoices ? 'bg-[--color-primary-600] border-[--color-primary-500] text-white' : 'border-slate-600 text-slate-400'}`}
-                                                >
-                                                   Thư viện đề xuất
-                                                </button>
                                                 <input
                                                     type="checkbox"
                                                     id="useCustomVoice"
@@ -779,39 +825,17 @@ const App: React.FC = () => {
                                                         setUseCustomVoiceId(e.target.checked);
                                                         if (!e.target.checked && elevenLabsVoices.length > 0) {
                                                             const exists = elevenLabsVoices.some(v => v.voice_id === selectedElevenLabsVoice);
-                                                            if (!exists) {
-                                                                const clyde = elevenLabsVoices.find(v => v.voice_id === 'wyWA56cQNU2KqUW4eCsI');
-                                                                setSelectedElevenLabsVoice(clyde ? clyde.voice_id : elevenLabsVoices[0].voice_id);
-                                                            }
+                                                            if (!exists) setSelectedElevenLabsVoice(elevenLabsVoices[0].voice_id);
                                                         }
                                                     }}
                                                     className="rounded border-slate-600 bg-slate-700 text-[--color-primary-500] focus:ring-[--color-primary-500]"
                                                     disabled={isDisabled || getElevenLabsKeysList().length === 0}
                                                 />
                                                 <label htmlFor="useCustomVoice" className="text-xs text-slate-400 cursor-pointer select-none">
-                                                    Voice ID
+                                                    Nhập Voice ID thủ công
                                                 </label>
                                             </div>
                                         </div>
-
-                                        {showFeaturedVoices && (
-                                            <div className="mb-3 grid grid-cols-2 gap-2 max-h-48 overflow-y-auto p-2 bg-slate-900/50 rounded-lg border border-slate-700 custom-scrollbar">
-                                                {elevenLabsFeaturedVoices.map(v => (
-                                                    <div key={v.id} className={`p-2 rounded border cursor-pointer transition-all ${selectedElevenLabsVoice === v.id ? 'border-[--color-primary-500] bg-[--color-primary-500]/10' : 'border-slate-700 hover:border-slate-500 bg-slate-800/40'}`} onClick={() => { setSelectedElevenLabsVoice(v.id); setUseCustomVoiceId(true); }}>
-                                                        <div className="flex items-center justify-between mb-1">
-                                                            <span className="text-xs font-bold text-slate-200 line-clamp-1">{v.name}</span>
-                                                        </div>
-                                                        <p className="text-[10px] text-slate-500 line-clamp-1 leading-tight mb-1">{v.desc}</p>
-                                                        <div className="flex items-center justify-between">
-                                                            <div className="flex space-x-1">
-                                                                {v.tags.slice(0, 1).map(t => <span key={t} className="text-[9px] bg-slate-700 px-1 rounded text-slate-400">{t}</span>)}
-                                                            </div>
-                                                            <button className="text-[9px] bg-[--color-primary-600]/80 hover:bg-[--color-primary-500] py-0.5 px-2 rounded text-white">Dùng</button>
-                                                        </div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
 
                                         <div className="flex items-center space-x-2">
                                             {useCustomVoiceId ? (
@@ -819,7 +843,7 @@ const App: React.FC = () => {
                                                     type="text"
                                                     value={selectedElevenLabsVoice}
                                                     onChange={(e) => setSelectedElevenLabsVoice(e.target.value)}
-                                                    placeholder="Nhập Voice ID..."
+                                                    placeholder="Nhập Voice ID (ví dụ: z9AwTVuN8C7iJ75jitEW)"
                                                     disabled={isDisabled || getElevenLabsKeysList().length === 0}
                                                     className="flex-grow bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors"
                                                 />
@@ -904,7 +928,7 @@ const App: React.FC = () => {
                                                         <input
                                                             type="range"
                                                             min="0"
-                                max="1"
+                                                            max="1"
                                                             step="0.01"
                                                             value={elevenLabsSettings.similarityBoost}
                                                             onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, similarityBoost: parseFloat(e.target.value)})}
@@ -1068,6 +1092,11 @@ const App: React.FC = () => {
       <ApiKeyModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
+        apiKeys={apiKeys}
+        activeKeyId={activeKeyId}
+        onAddKey={handleAddKey}
+        onDeleteKey={handleDeleteKey}
+        onSetActiveKey={(id) => { setActiveKeyId(id); localStorage.setItem('activeApiKeyId', id.toString()); }}
         elevenLabsApiKey={elevenLabsApiKey}
         elevenLabsBaseUrl={elevenLabsBaseUrl}
         onElevenLabsConfigChange={saveElevenLabsConfig}

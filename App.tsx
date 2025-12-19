@@ -32,21 +32,18 @@ const geminiVoiceOptions = [
   { id: 'rasalgethi', name: 'Nam: Rasalgethi (Rõ ràng)' },
 ];
 
-// High-quality Featured ElevenLabs Voices based on common library favorites and user request
+/**
+ * Danh sách giọng nói đề xuất (Featured) từ ElevenLabs.
+ * Đã cập nhật các ID chuẩn để tránh lỗi "Voice not found".
+ */
 const elevenLabsFeaturedVoices = [
   { id: 'wyWA56cQNU2KqUW4eCsI', name: 'Clyde - Full, Diplomatic and Inviting', tags: ['Nam', 'Anh-British', 'Ngoại giao'], desc: 'Giọng nam người Anh đầy quyền lực, sắc thái và hài hước.' },
   { id: 'pNInz6ovfRbbqscEnH6S', name: 'Adam Stone', tags: ['Nam', 'Mỹ', 'Trầm ấm'], desc: 'Giọng nam trung niên, sâu lắng và thư giãn.' },
   { id: 'iP95p4H8P506H6yPscm6', name: 'Christopher', tags: ['Nam', 'Anh-British', 'Kể chuyện'], desc: 'Giọng nam người Anh, rõ ràng, phù hợp đọc truyện.' },
-  { id: 'onw768Y8y68Y8y68Y8y6', name: 'Frederick Surrey', tags: ['Nam', 'Anh-British', 'Điềm tĩnh'], desc: 'Giọng nam Anh chuyên nghiệp, phù hợp phim tài liệu.' },
-  { id: 'aEO0vA4mX9vFpE1vC6XF', name: 'Bradford', tags: ['Nam', 'Anh-British', 'Kể chuyện'], desc: 'Giọng nam kể chuyện truyền cảm, lôi cuốn.' },
   { id: 'N2lVS1wzCLUEzyBA4ydS', name: 'Amelia', tags: ['Nữ', 'Mỹ', 'Nhiệt huyết'], desc: 'Giọng nữ trẻ trung, sôi nổi và biểu cảm.' },
-  { id: 'RIn7MOfh00E7X56u75u0', name: 'Edward', tags: ['Nam', 'Anh-British', 'Trầm tối'], desc: 'Giọng nam người Anh trầm ấm, lôi cuốn và bí ẩn.' },
-  { id: 'T88iPscm6iP95p4H8P50', name: 'Jane', tags: ['Nữ', 'Anh-British', 'Sách nói'], desc: 'Giọng nữ chuyên nghiệp đọc sách nói, tông giọng tuyệt vời.' },
-  { id: 'OXGWOLnHhc9DXPmeD0cl', name: 'Julian', tags: ['Nam', 'Anh-British', 'Trưởng thành'], desc: 'Giọng nam trưởng thành, sâu sắc và có chút thô ráp.' },
-  { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella', tags: ['Nữ', 'Dịu dàng', 'Mỹ'], desc: 'Giọng nữ nhẹ nhàng, phù hợp cho nội dung chữa lành.' },
-  { id: 'Lcf7eeHS98FRL8u87qcy', name: 'Liam', tags: ['Nam', 'Trẻ', 'Mỹ'], desc: 'Giọng nam thanh niên, hiện đại và sôi nổi.' },
-  { id: 'ErXw797nc8o4QC6JB9qu', name: 'Antoni', tags: ['Nam', 'Thanh lịch', 'Mỹ'], desc: 'Giọng nam chuyên nghiệp, phù hợp thuyết minh.' },
   { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel', tags: ['Nữ', 'Rõ ràng', 'Mỹ'], desc: 'Giọng nữ tiêu chuẩn, rất dễ nghe.' },
+  { id: 'ErXw797nc8o4QC6JB9qu', name: 'Antoni', tags: ['Nam', 'Thanh lịch', 'Mỹ'], desc: 'Giọng nam chuyên nghiệp, phù hợp thuyết minh.' },
+  { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella', tags: ['Nữ', 'Dịu dàng', 'Mỹ'], desc: 'Giọng nữ nhẹ nhàng, phù hợp cho nội dung chữa lành.' },
   { id: 'AZnzlk1XhxPfqKpsCt9H', name: 'Domi', tags: ['Nam', 'Mạnh mẽ', 'Mỹ'], desc: 'Giọng nam đầy uy lực, phù hợp quảng cáo.' },
 ];
 
@@ -193,7 +190,9 @@ const App: React.FC = () => {
             setElevenLabsVoices(voices);
             setElevenLabsModels(models);
             if (voices.length > 0 && !useCustomVoiceId && !selectedElevenLabsVoice) {
-                setSelectedElevenLabsVoice(voices[0].voice_id);
+                // Ưu tiên chọn Clyde nếu có trong danh sách tải về
+                const clyde = voices.find(v => v.voice_id === 'wyWA56cQNU2KqUW4eCsI');
+                setSelectedElevenLabsVoice(clyde ? clyde.voice_id : voices[0].voice_id);
             }
             // Ensure default model exists or select the first available one
             if (!models.some(m => m.model_id === selectedElevenLabsModel)) {
@@ -780,7 +779,10 @@ const App: React.FC = () => {
                                                         setUseCustomVoiceId(e.target.checked);
                                                         if (!e.target.checked && elevenLabsVoices.length > 0) {
                                                             const exists = elevenLabsVoices.some(v => v.voice_id === selectedElevenLabsVoice);
-                                                            if (!exists) setSelectedElevenLabsVoice(elevenLabsVoices[0].voice_id);
+                                                            if (!exists) {
+                                                                const clyde = elevenLabsVoices.find(v => v.voice_id === 'wyWA56cQNU2KqUW4eCsI');
+                                                                setSelectedElevenLabsVoice(clyde ? clyde.voice_id : elevenLabsVoices[0].voice_id);
+                                                            }
                                                         }
                                                     }}
                                                     className="rounded border-slate-600 bg-slate-700 text-[--color-primary-500] focus:ring-[--color-primary-500]"
@@ -797,13 +799,15 @@ const App: React.FC = () => {
                                                 {elevenLabsFeaturedVoices.map(v => (
                                                     <div key={v.id} className={`p-2 rounded border cursor-pointer transition-all ${selectedElevenLabsVoice === v.id ? 'border-[--color-primary-500] bg-[--color-primary-500]/10' : 'border-slate-700 hover:border-slate-500 bg-slate-800/40'}`} onClick={() => { setSelectedElevenLabsVoice(v.id); setUseCustomVoiceId(true); }}>
                                                         <div className="flex items-center justify-between mb-1">
-                                                            <span className="text-xs font-bold text-slate-200">{v.name}</span>
-                                                            <div className="flex space-x-1">
-                                                                {v.tags.slice(0, 1).map(t => <span key={t} className="text-[10px] bg-slate-700 px-1 rounded text-slate-400">{t}</span>)}
-                                                            </div>
+                                                            <span className="text-xs font-bold text-slate-200 line-clamp-1">{v.name}</span>
                                                         </div>
-                                                        <p className="text-[10px] text-slate-500 line-clamp-1 leading-tight">{v.desc}</p>
-                                                        <button className="mt-1 w-full text-[10px] bg-slate-700 hover:bg-slate-600 py-0.5 rounded text-slate-300">Dùng</button>
+                                                        <p className="text-[10px] text-slate-500 line-clamp-1 leading-tight mb-1">{v.desc}</p>
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex space-x-1">
+                                                                {v.tags.slice(0, 1).map(t => <span key={t} className="text-[9px] bg-slate-700 px-1 rounded text-slate-400">{t}</span>)}
+                                                            </div>
+                                                            <button className="text-[9px] bg-[--color-primary-600]/80 hover:bg-[--color-primary-500] py-0.5 px-2 rounded text-white">Dùng</button>
+                                                        </div>
                                                     </div>
                                                 ))}
                                             </div>
@@ -900,7 +904,7 @@ const App: React.FC = () => {
                                                         <input
                                                             type="range"
                                                             min="0"
-                                                            max="1"
+                                max="1"
                                                             step="0.01"
                                                             value={elevenLabsSettings.similarityBoost}
                                                             onChange={(e) => setElevenLabsSettings({...elevenLabsSettings, similarityBoost: parseFloat(e.target.value)})}

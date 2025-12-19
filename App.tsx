@@ -33,6 +33,18 @@ const geminiVoiceOptions = [
   { id: 'rasalgethi', name: 'Nam: Rasalgethi (Rõ ràng)' },
 ];
 
+// High-quality Featured ElevenLabs Voices based on common library favorites
+const elevenLabsFeaturedVoices = [
+  { id: 'pNInz6ovfRbbqscEnH6S', name: 'Adam Stone', tags: ['Nam', 'Trầm ấm', 'Mỹ'], desc: 'Giọng nam trung niên, sâu lắng và thư giãn.' },
+  { id: 'iP95p4H8P506H6yPscm6', name: 'Christopher', tags: ['Nam', 'Kể chuyện', 'Anh'], desc: 'Giọng nam người Anh, rõ ràng, phù hợp đọc truyện.' },
+  { id: 'N2lVS1wzCLUEzyBA4ydS', name: 'Amelia', tags: ['Nữ', 'Trẻ', 'Mỹ'], desc: 'Giọng nữ trẻ trung, nhiệt huyết và biểu cảm.' },
+  { id: 'EXAVITQu4vr4xnSDxMaL', name: 'Bella', tags: ['Nữ', 'Dịu dàng', 'Mỹ'], desc: 'Giọng nữ nhẹ nhàng, phù hợp cho nội dung chữa lành.' },
+  { id: 'Lcf7eeHS98FRL8u87qcy', name: 'Liam', tags: ['Nam', 'Trẻ', 'Mỹ'], desc: 'Giọng nam thanh niên, hiện đại và sôi nổi.' },
+  { id: 'ErXw797nc8o4QC6JB9qu', name: 'Antoni', tags: ['Nam', 'Thanh lịch', 'Mỹ'], desc: 'Giọng nam chuyên nghiệp, phù hợp thuyết minh.' },
+  { id: '21m00Tcm4TlvDq8ikWAM', name: 'Rachel', tags: ['Nữ', 'Rõ ràng', 'Mỹ'], desc: 'Giọng nữ tiêu chuẩn, rất dễ nghe.' },
+  { id: 'AZnzlk1XhxPfqKpsCt9H', name: 'Domi', tags: ['Nam', 'Mạnh mẽ', 'Mỹ'], desc: 'Giọng nam đầy uy lực, phù hợp quảng cáo.' },
+];
+
 // Tooltip Component
 const InfoTooltip: React.FC<{ text: string }> = ({ text }) => (
   <div className="group relative ml-1.5 inline-flex items-center cursor-help z-10">
@@ -65,6 +77,7 @@ const App: React.FC = () => {
   const [selectedElevenLabsModel, setSelectedElevenLabsModel] = useState<string>('eleven_multilingual_v2');
   const [isLoadingElevenLabs, setIsLoadingElevenLabs] = useState<boolean>(false);
   const [useCustomVoiceId, setUseCustomVoiceId] = useState<boolean>(false);
+  const [showFeaturedVoices, setShowFeaturedVoices] = useState<boolean>(true);
   
   // ElevenLabs Advanced Settings
   const [elevenLabsSettings, setElevenLabsSettings] = useState<ElevenLabsSettings>({
@@ -190,7 +203,9 @@ const App: React.FC = () => {
         ]).then(([voices, models]) => {
             setElevenLabsVoices(voices);
             setElevenLabsModels(models);
-            if (voices.length > 0 && !useCustomVoiceId) setSelectedElevenLabsVoice(voices[0].voice_id);
+            if (voices.length > 0 && !useCustomVoiceId && !selectedElevenLabsVoice) {
+                setSelectedElevenLabsVoice(voices[0].voice_id);
+            }
             // Ensure default model exists or select the first available one
             if (!models.some(m => m.model_id === selectedElevenLabsModel)) {
                  // Ưu tiên chọn các model phổ biến nếu có
@@ -206,7 +221,7 @@ const App: React.FC = () => {
             setIsLoadingElevenLabs(false);
         });
     }
-  }, [ttsProvider, getElevenLabsKeysList, elevenLabsBaseUrl, elevenLabsVoices.length, selectedElevenLabsModel, useCustomVoiceId]);
+  }, [ttsProvider, getElevenLabsKeysList, elevenLabsBaseUrl, elevenLabsVoices.length, selectedElevenLabsModel, useCustomVoiceId, selectedElevenLabsVoice]);
 
 
   // Cleanup object URLs ONLY on unmount to prevent deleting active URLs during generation
@@ -817,6 +832,12 @@ const App: React.FC = () => {
                                         <div className="flex justify-between items-center mb-2">
                                             <label className="block text-sm font-medium text-slate-400">Giọng đọc (Voice)</label>
                                             <div className="flex items-center space-x-2">
+                                                <button
+                                                   onClick={() => setShowFeaturedVoices(!showFeaturedVoices)}
+                                                   className={`text-xs px-2 py-1 rounded border ${showFeaturedVoices ? 'bg-[--color-primary-600] border-[--color-primary-500] text-white' : 'border-slate-600 text-slate-400'}`}
+                                                >
+                                                   Thư viện đề xuất
+                                                </button>
                                                 <input
                                                     type="checkbox"
                                                     id="useCustomVoice"
@@ -832,10 +853,27 @@ const App: React.FC = () => {
                                                     disabled={isDisabled || getElevenLabsKeysList().length === 0}
                                                 />
                                                 <label htmlFor="useCustomVoice" className="text-xs text-slate-400 cursor-pointer select-none">
-                                                    Nhập Voice ID thủ công
+                                                    Voice ID
                                                 </label>
                                             </div>
                                         </div>
+
+                                        {showFeaturedVoices && (
+                                            <div className="mb-3 grid grid-cols-2 gap-2 max-h-48 overflow-y-auto p-2 bg-slate-900/50 rounded-lg border border-slate-700 custom-scrollbar">
+                                                {elevenLabsFeaturedVoices.map(v => (
+                                                    <div key={v.id} className={`p-2 rounded border cursor-pointer transition-all ${selectedElevenLabsVoice === v.id ? 'border-[--color-primary-500] bg-[--color-primary-500]/10' : 'border-slate-700 hover:border-slate-500 bg-slate-800/40'}`} onClick={() => { setSelectedElevenLabsVoice(v.id); setUseCustomVoiceId(true); }}>
+                                                        <div className="flex items-center justify-between mb-1">
+                                                            <span className="text-xs font-bold text-slate-200">{v.name}</span>
+                                                            <div className="flex space-x-1">
+                                                                {v.tags.slice(0, 1).map(t => <span key={t} className="text-[10px] bg-slate-700 px-1 rounded text-slate-400">{t}</span>)}
+                                                            </div>
+                                                        </div>
+                                                        <p className="text-[10px] text-slate-500 line-clamp-1 leading-tight">{v.desc}</p>
+                                                        <button className="mt-1 w-full text-[10px] bg-slate-700 hover:bg-slate-600 py-0.5 rounded text-slate-300">Dùng</button>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
 
                                         <div className="flex items-center space-x-2">
                                             {useCustomVoiceId ? (
@@ -843,7 +881,7 @@ const App: React.FC = () => {
                                                     type="text"
                                                     value={selectedElevenLabsVoice}
                                                     onChange={(e) => setSelectedElevenLabsVoice(e.target.value)}
-                                                    placeholder="Nhập Voice ID (ví dụ: z9AwTVuN8C7iJ75jitEW)"
+                                                    placeholder="Nhập Voice ID..."
                                                     disabled={isDisabled || getElevenLabsKeysList().length === 0}
                                                     className="flex-grow bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors"
                                                 />

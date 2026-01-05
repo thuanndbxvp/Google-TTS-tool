@@ -24,10 +24,11 @@ export function splitTextSmartly(text: string): string[] {
     const chunks: string[] = [];
     let currentChunk = "";
     
-    // Ngưỡng mềm: Cố gắng ngắt ở khoảng này nếu gặp dấu câu (~50-60 từ)
-    const SOFT_LIMIT = 250; 
-    // Ngưỡng cứng: Nếu một câu quá dài không có dấu câu, buộc phải cắt
-    const HARD_LIMIT = 500;
+    // Ngưỡng mềm: Cố gắng ngắt ở khoảng này nếu gặp dấu câu.
+    // Tăng lên 1000 ký tự (khoảng 200-250 từ tiếng Việt) để giữ mạch văn liền mạch hơn.
+    const SOFT_LIMIT = 1000; 
+    // Ngưỡng cứng: Nếu một câu quá dài không có dấu câu, buộc phải cắt.
+    const HARD_LIMIT = 3000;
   
     for (const sentence of sentences) {
       // Nếu thêm câu này vào mà vẫn dưới ngưỡng mềm, hoặc chunk hiện tại đang rỗng

@@ -14,6 +14,7 @@ import { PlayIcon } from './components/icons/PlayIcon';
 import { ApiKeyModal } from './components/ApiKeyModal';
 import { KeyIcon } from './components/icons/KeyIcon';
 import { parseSrt } from './utils/srtParser';
+import { splitTextSmartly } from './utils/textSplitter';
 import { createSilence, concatenatePcm, getPcmDuration, createWavBlob } from './utils/audioUtils';
 import { SrtResultPlayer } from './components/SrtResultPlayer';
 
@@ -459,7 +460,9 @@ const App: React.FC = () => {
           setSrtResult({ audioUrl });
 
       } else {
-          const paragraphs = fileContent.split('\n').filter(p => p.trim() !== '');
+          // Use smart splitter instead of simple newline split
+          const paragraphs = splitTextSmartly(fileContent);
+          
           if (paragraphs.length === 0) throw new Error('Không có nội dung.');
           
           setProgress({ current: 0, total: paragraphs.length });

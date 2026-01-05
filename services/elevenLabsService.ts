@@ -64,7 +64,8 @@ export async function generateElevenLabsSpeechBytes(
   apiKey: string,
   languageCode?: string,
   baseUrl: string = DEFAULT_API_BASE,
-  settings?: ElevenLabsSettings
+  settings?: ElevenLabsSettings,
+  speed: number = 1.0
 ): Promise<Uint8Array> {
   if (!apiKey) throw new Error("ElevenLabs API Key is required");
   if (!text.trim()) return new Uint8Array(0);
@@ -118,5 +119,6 @@ export async function generateElevenLabsSpeechBytes(
 
   const arrayBuffer = await response.arrayBuffer();
   // Convert MP3/Audio data to raw PCM for compatibility with our utils
-  return await decodeAudioDataToPcm(arrayBuffer);
+  // Pass speed parameter to handle resampling if needed
+  return await decodeAudioDataToPcm(arrayBuffer, speed);
 }

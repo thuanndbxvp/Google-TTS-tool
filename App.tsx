@@ -104,6 +104,9 @@ const App: React.FC = () => {
   });
   const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState<boolean>(false);
 
+  // Common Settings
+  const [speechSpeed, setSpeechSpeed] = useState<number>(1.0);
+
   // Common State
   const [audioResults, setAudioResults] = useState<AudioResult[]>([]);
   const [srtResult, setSrtResult] = useState<{ audioUrl: string } | null>(null);
@@ -341,13 +344,13 @@ const App: React.FC = () => {
       let audioUrl: string;
       if (ttsProvider === 'gemini') {
            const instruction = getInstruction();
-           audioUrl = await generateSpeech(instruction + sampleText, selectedGeminiVoice, geminiApiKey);
+           audioUrl = await generateSpeech(instruction + sampleText, selectedGeminiVoice, geminiApiKey, speechSpeed);
       } else {
            const keys = getElevenLabsKeysList();
            if (keys.length === 0) throw new Error("Vui lòng nhập API Key ElevenLabs");
            const langCode = getElevenLabsLanguageCode();
            // Use first key for preview
-           const bytes = await generateElevenLabsSpeechBytes(sampleText, selectedElevenLabsVoice, selectedElevenLabsModel, keys[0], langCode, elevenLabsBaseUrl, elevenLabsSettings);
+           const bytes = await generateElevenLabsSpeechBytes(sampleText, selectedElevenLabsVoice, selectedElevenLabsModel, keys[0], langCode, elevenLabsBaseUrl, elevenLabsSettings, speechSpeed);
            const blob = createWavBlob(bytes);
            audioUrl = URL.createObjectURL(blob);
       }
@@ -436,7 +439,7 @@ const App: React.FC = () => {
             let speechBytes: Uint8Array = new Uint8Array(0);
 
             if (ttsProvider === 'gemini') {
-                 speechBytes = await generateSpeechBytes(textToRead, selectedGeminiVoice, geminiApiKey);
+                 speechBytes = await generateSpeechBytes(textToRead, selectedGeminiVoice, geminiApiKey, speechSpeed);
                  // Delay for Gemini Rate Limit
                  if (i < subtitles.length - 1) await new Promise(r => setTimeout(r, 21000));
             } else {
@@ -445,7 +448,7 @@ const App: React.FC = () => {
                  while (!success && attempts < elevenLabsKeys.length) {
                     const keyToUse = elevenLabsKeys[elevenLabsKeyIdx];
                     try {
-                        speechBytes = await generateElevenLabsSpeechBytes(sub.text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl, elevenLabsSettings);
+                        speechBytes = await generateElevenLabsSpeechBytes(sub.text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl, elevenLabsSettings, speechSpeed);
                         success = true;
                         // On success, move to next key for next paragraph (Round Robin)
                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
@@ -497,7 +500,7 @@ const App: React.FC = () => {
             let speechBytes: Uint8Array = new Uint8Array(0);
 
             if (ttsProvider === 'gemini') {
-                 audioUrl = await generateSpeech(textToRead, selectedGeminiVoice, geminiApiKey);
+                 audioUrl = await generateSpeech(textToRead, selectedGeminiVoice, geminiApiKey, speechSpeed);
                  if (i < paragraphs.length - 1) await new Promise(r => setTimeout(r, 21000));
             } else {
                  let attempts = 0;
@@ -505,7 +508,7 @@ const App: React.FC = () => {
                  while (!success && attempts < elevenLabsKeys.length) {
                     const keyToUse = elevenLabsKeys[elevenLabsKeyIdx];
                     try {
-                        speechBytes = await generateElevenLabsSpeechBytes(p, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl, elevenLabsSettings);
+                        speechBytes = await generateElevenLabsSpeechBytes(p, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl, elevenLabsSettings, speechSpeed);
                         if (speechBytes && speechBytes.length > 0) {
                             success = true;
                         } else {
@@ -558,7 +561,7 @@ const App: React.FC = () => {
         let speechBytes: Uint8Array = new Uint8Array(0);
 
         if (ttsProvider === 'gemini') {
-            audioUrl = await generateSpeech(textToRead, selectedGeminiVoice, geminiApiKey);
+            audioUrl = await generateSpeech(textToRead, selectedGeminiVoice, geminiApiKey, speechSpeed);
         } else {
              // For regeneration, we just pick a random key to distribute load
              if (elevenLabsKeys.length === 0) throw new Error("No ElevenLabs keys");
@@ -570,7 +573,7 @@ const App: React.FC = () => {
                 const randomKeyIdx = Math.floor(Math.random() * elevenLabsKeys.length);
                 const keyToUse = elevenLabsKeys[randomKeyIdx];
                 try {
-                    speechBytes = await generateElevenLabsSpeechBytes(text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl, elevenLabsSettings);
+                    speechBytes = await generateElevenLabsSpeechBytes(text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl, elevenLabsSettings, speechSpeed);
                      if (speechBytes && speechBytes.length > 0) {
                         success = true;
                     } else {
@@ -749,6 +752,31 @@ const App: React.FC = () => {
                                     <option value="vietnam">Việt Nam</option>
                                     <option value="other">Quốc tế (English)</option>
                                 </select>
+                            </div>
+
+                            {/* Speed Control (Shared for both providers) */}
+                            <div>
+                                <div className="flex items-center justify-between text-sm font-medium text-slate-400 mb-2">
+                                    <div className="flex items-center">
+                                        <span>Tốc độ đọc</span>
+                                        <InfoTooltip text="Điều chỉnh tốc độ phát lại. Tốc độ > 1.0 sẽ nhanh hơn, < 1.0 sẽ chậm hơn." />
+                                    </div>
+                                    <span className="text-[--color-primary-300] font-mono">{speechSpeed.toFixed(1)}x</span>
+                                </div>
+                                <div className="flex items-center space-x-3">
+                                    <span className="text-xs text-slate-500">0.5x</span>
+                                    <input
+                                        type="range"
+                                        min="0.5"
+                                        max="2.0"
+                                        step="0.1"
+                                        value={speechSpeed}
+                                        onChange={(e) => setSpeechSpeed(parseFloat(e.target.value))}
+                                        className="flex-grow h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[--color-primary-500]"
+                                        disabled={isDisabled}
+                                    />
+                                    <span className="text-xs text-slate-500">2.0x</span>
+                                </div>
                             </div>
 
                             {ttsProvider === 'gemini' ? (

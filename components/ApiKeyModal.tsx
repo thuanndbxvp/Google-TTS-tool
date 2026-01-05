@@ -8,6 +8,9 @@ interface ApiKeyModalProps {
   elevenLabsApiKey: string;
   elevenLabsBaseUrl: string;
   onElevenLabsConfigChange: (keys: string, baseUrl: string) => void;
+  // Gemini props
+  geminiApiKey?: string;
+  onGeminiConfigChange?: (key: string) => void;
 }
 
 export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
@@ -15,17 +18,24 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
   onClose,
   elevenLabsApiKey,
   elevenLabsBaseUrl,
-  onElevenLabsConfigChange
+  onElevenLabsConfigChange,
+  geminiApiKey = '',
+  onGeminiConfigChange
 }) => {
   // ElevenLabs local state
   const [elevenLabsKeysInput, setElevenLabsKeysInput] = useState(elevenLabsApiKey);
   const [elevenLabsUrlInput, setElevenLabsUrlInput] = useState(elevenLabsBaseUrl);
   const [isEditingElevenLabs, setIsEditingElevenLabs] = useState(false);
 
+  // Gemini local state
+  const [geminiKeyInput, setGeminiKeyInput] = useState(geminiApiKey);
+  const [isEditingGemini, setIsEditingGemini] = useState(false);
+
   useEffect(() => {
     setElevenLabsKeysInput(elevenLabsApiKey);
     setElevenLabsUrlInput(elevenLabsBaseUrl);
-  }, [elevenLabsApiKey, elevenLabsBaseUrl, isOpen]);
+    setGeminiKeyInput(geminiApiKey);
+  }, [elevenLabsApiKey, elevenLabsBaseUrl, geminiApiKey, isOpen]);
 
   if (!isOpen) {
     return null;
@@ -34,6 +44,13 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
   const handleSaveElevenLabs = () => {
     onElevenLabsConfigChange(elevenLabsKeysInput, elevenLabsUrlInput.trim());
     setIsEditingElevenLabs(false);
+  }
+
+  const handleSaveGemini = () => {
+    if (onGeminiConfigChange) {
+        onGeminiConfigChange(geminiKeyInput.trim());
+        setIsEditingGemini(false);
+    }
   }
 
   const keyCount = elevenLabsApiKey.split('\n').filter(k => k.trim()).length;
@@ -62,6 +79,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
         <div className="p-2 overflow-y-auto custom-scrollbar">
             <h2 id="apiKeyModalTitle" className="text-2xl font-bold text-[--color-primary-400] mb-2 text-center transition-colors">Quản lý API Keys</h2>
             
+            {/* ElevenLabs Section */}
             <div className="mb-4 pt-6 border-t border-slate-600">
               <h3 className="text-lg font-semibold text-white mb-2 flex items-center justify-between">
                  <div className="flex items-center">
@@ -123,6 +141,65 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
                             </button>
                          )}
                         <button onClick={handleSaveElevenLabs} className="bg-[--color-primary-600] hover:bg-[--color-primary-500] text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm">
+                            Lưu Cấu Hình
+                        </button>
+                    </div>
+                </div>
+              )}
+            </div>
+            
+            {/* Gemini Section */}
+            <div className="mb-4 pt-6 border-t border-slate-600">
+               <h3 className="text-lg font-semibold text-white mb-2 flex items-center justify-between">
+                 <div className="flex items-center">
+                    <span className="bg-gradient-to-r from-blue-400 to-purple-500 bg-clip-text text-transparent mr-2">Google Gemini</span>
+                 </div>
+                 {!isEditingGemini && geminiApiKey && (
+                    <span className="text-xs bg-slate-700 text-slate-300 px-2 py-1 rounded-full border border-slate-600">
+                        Đã nhập
+                    </span>
+                 )}
+              </h3>
+              <p className="text-slate-400 text-xs mb-4">
+                Sử dụng Gemini 2.5 Flash để tạo giọng đọc. Cần có API Key từ Google AI Studio.
+              </p>
+
+               {!isEditingGemini && geminiApiKey ? (
+                <div className="bg-slate-700/50 p-3 rounded-lg border border-slate-600">
+                   <div className="flex items-center justify-between">
+                       <div className="flex items-center">
+                          <KeyIcon />
+                          <span className="ml-3 font-mono text-slate-300 text-sm">
+                              {geminiApiKey.substring(0, 4)}...{geminiApiKey.substring(geminiApiKey.length - 4)}
+                          </span>
+                       </div>
+                       <button onClick={() => setIsEditingGemini(true)} className="text-[--color-primary-400] hover:text-[--color-primary-300] text-sm font-semibold transition-colors">
+                          Cấu hình
+                       </button>
+                   </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                   <div>
+                        <label className="block text-xs font-medium text-slate-400 mb-1">Gemini API Key</label>
+                        <input
+                            type="password"
+                            value={geminiKeyInput}
+                            onChange={(e) => setGeminiKeyInput(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-300 text-sm font-mono hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors"
+                            placeholder="AIzaSy..."
+                        />
+                         <p className="text-[10px] text-slate-500 mt-1">
+                             Nếu bỏ trống, ứng dụng sẽ thử dùng biến môi trường (nếu có).
+                         </p>
+                    </div>
+                    <div className="flex space-x-2 justify-end">
+                         {isEditingGemini && (
+                            <button onClick={() => { setIsEditingGemini(false); setGeminiKeyInput(geminiApiKey); }} className="text-slate-400 hover:text-white px-3 py-2 text-sm">
+                               Hủy
+                            </button>
+                         )}
+                        <button onClick={handleSaveGemini} className="bg-[--color-primary-600] hover:bg-[--color-primary-500] text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm">
                             Lưu Cấu Hình
                         </button>
                     </div>

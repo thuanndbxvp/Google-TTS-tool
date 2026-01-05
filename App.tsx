@@ -78,6 +78,7 @@ const App: React.FC = () => {
   const [ttsProvider, setTtsProvider] = useState<TtsProvider>('elevenlabs');
   
   // Gemini State
+  const [geminiApiKey, setGeminiApiKey] = useState<string>('');
   const [selectedGeminiVoice, setSelectedGeminiVoice] = useState<string>('kore');
   const [selectedLanguage, setSelectedLanguage] = useState<string>('other'); 
   const [selectedRegion, setSelectedRegion] = useState<string>('bac'); 
@@ -151,7 +152,16 @@ const App: React.FC = () => {
 
       if (savedElevenLabsKey) setElevenLabsApiKey(savedElevenLabsKey);
       if (savedElevenLabsBaseUrl) setElevenLabsBaseUrl(savedElevenLabsBaseUrl);
+    } catch (error) {
+      console.error(error);
+    }
+  }, []);
 
+  // Load Gemini config
+  useEffect(() => {
+    try {
+      const savedGeminiKey = localStorage.getItem('geminiApiKey');
+      if (savedGeminiKey) setGeminiApiKey(savedGeminiKey);
     } catch (error) {
       console.error(error);
     }
@@ -256,6 +266,11 @@ const App: React.FC = () => {
       setElevenLabsModels([]);
   }
 
+  const saveGeminiConfig = (key: string) => {
+      setGeminiApiKey(key);
+      localStorage.setItem('geminiApiKey', key);
+  }
+
   const handleFileSelect = useCallback((content: string, fileName: string) => {
     const extension = fileName.split('.').pop()?.toLowerCase();
     if (extension === 'txt') setFileType('txt');
@@ -326,8 +341,7 @@ const App: React.FC = () => {
       let audioUrl: string;
       if (ttsProvider === 'gemini') {
            const instruction = getInstruction();
-           // Fix: Call generateSpeech directly as it uses process.env.API_KEY internally
-           audioUrl = await generateSpeech(instruction + sampleText, selectedGeminiVoice);
+           audioUrl = await generateSpeech(instruction + sampleText, selectedGeminiVoice, geminiApiKey);
       } else {
            const keys = getElevenLabsKeysList();
            if (keys.length === 0) throw new Error("Vui lòng nhập API Key ElevenLabs");
@@ -379,6 +393,12 @@ const App: React.FC = () => {
         setIsModalOpen(true);
         return;
     }
+    // Check Gemini Key if needed (environment variable might be missing)
+    if (ttsProvider === 'gemini' && !geminiApiKey && !process.env.API_KEY) {
+         setError('Vui lòng cấu hình API Key Gemini hoặc đảm bảo biến môi trường được thiết lập.');
+         setIsModalOpen(true);
+         return;
+    }
 
     setIsLoading(true);
     setError(null);
@@ -416,8 +436,7 @@ const App: React.FC = () => {
             let speechBytes: Uint8Array = new Uint8Array(0);
 
             if (ttsProvider === 'gemini') {
-                 // Fix: Call generateSpeechBytes directly as it uses process.env.API_KEY internally
-                 speechBytes = await generateSpeechBytes(textToRead, selectedGeminiVoice);
+                 speechBytes = await generateSpeechBytes(textToRead, selectedGeminiVoice, geminiApiKey);
                  // Delay for Gemini Rate Limit
                  if (i < subtitles.length - 1) await new Promise(r => setTimeout(r, 21000));
             } else {
@@ -478,8 +497,7 @@ const App: React.FC = () => {
             let speechBytes: Uint8Array = new Uint8Array(0);
 
             if (ttsProvider === 'gemini') {
-                 // Fix: Call generateSpeech directly as it uses process.env.API_KEY internally
-                 audioUrl = await generateSpeech(textToRead, selectedGeminiVoice);
+                 audioUrl = await generateSpeech(textToRead, selectedGeminiVoice, geminiApiKey);
                  if (i < paragraphs.length - 1) await new Promise(r => setTimeout(r, 21000));
             } else {
                  let attempts = 0;
@@ -540,8 +558,7 @@ const App: React.FC = () => {
         let speechBytes: Uint8Array = new Uint8Array(0);
 
         if (ttsProvider === 'gemini') {
-            // Fix: Call generateSpeech directly as it uses process.env.API_KEY internally
-            audioUrl = await generateSpeech(textToRead, selectedGeminiVoice);
+            audioUrl = await generateSpeech(textToRead, selectedGeminiVoice, geminiApiKey);
         } else {
              // For regeneration, we just pick a random key to distribute load
              if (elevenLabsKeys.length === 0) throw new Error("No ElevenLabs keys");
@@ -736,6 +753,13 @@ const App: React.FC = () => {
 
                             {ttsProvider === 'gemini' ? (
                                 <>
+                                    {/* Warn if no key provided */}
+                                    {!geminiApiKey && !process.env.API_KEY && (
+                                         <div className="bg-yellow-500/10 border border-yellow-500/50 text-yellow-200 p-3 rounded-lg text-sm mb-2">
+                                            Bạn cần nhập API Key của Gemini trong phần cài đặt (hoặc cấu hình biến môi trường).
+                                        </div>
+                                    )}
+
                                     <div>
                                         <label className="block text-sm font-medium text-slate-400 mb-2">Vùng miền (VN)</label>
                                         <select
@@ -1119,6 +1143,8 @@ const App: React.FC = () => {
         elevenLabsApiKey={elevenLabsApiKey}
         elevenLabsBaseUrl={elevenLabsBaseUrl}
         onElevenLabsConfigChange={saveElevenLabsConfig}
+        geminiApiKey={geminiApiKey}
+        onGeminiConfigChange={saveGeminiConfig}
       />
     </div>
   );

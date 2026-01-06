@@ -3,6 +3,7 @@ import { ElevenLabsVoice, ElevenLabsModel, ElevenLabsSettings } from "../types";
 import { decodeAudioDataToPcm } from "../utils/audioUtils";
 
 const DEFAULT_API_BASE = "https://api.elevenlabs.io/v1";
+const RELAY_URL = "https://gomhuongcanh.vn/ai_studio_code.php";
 
 // Cache for Proxy
 let currentProxy: string | null = null;
@@ -11,8 +12,7 @@ let proxyExpiry: number = 0; // Timestamp
 export async function fetchElevenLabsVoices(apiKey: string, baseUrl: string = DEFAULT_API_BASE): Promise<ElevenLabsVoice[]> {
   if (!apiKey) throw new Error("ElevenLabs API Key is required");
 
-  // Remove trailing slash if present
-  const cleanBaseUrl = baseUrl.replace(/\/$/, "");
+  let cleanBaseUrl = baseUrl.replace(/\/$/, "");
 
   const response = await fetch(`${cleanBaseUrl}/voices`, {
     headers: {
@@ -36,7 +36,7 @@ export async function fetchElevenLabsVoices(apiKey: string, baseUrl: string = DE
 export async function fetchElevenLabsModels(apiKey: string, baseUrl: string = DEFAULT_API_BASE): Promise<ElevenLabsModel[]> {
   if (!apiKey) throw new Error("ElevenLabs API Key is required");
 
-  const cleanBaseUrl = baseUrl.replace(/\/$/, "");
+  let cleanBaseUrl = baseUrl.replace(/\/$/, "");
 
   const response = await fetch(`${cleanBaseUrl}/models`, {
     headers: {
@@ -114,21 +114,83 @@ async function getProxyXoay(keyXoay: string): Promise<string> {
     }
 }
 
+/**
+ * Kiểm tra kết nối Proxy và trả về thông tin IP
+ */
+export async function verifyProxyConnection(proxyKey: string, apiKey: string): Promise<{ myIp: string, proxyIp: string, success: boolean, message: string }> {
+    try {
+        // 1. Lấy IP gốc của người dùng
+        let myIp = "Unknown";
+        try {
+            const ipRes = await fetch('https://api.ipify.org?format=json');
+            const ipData = await ipRes.json();
+            myIp = ipData.ip;
+        } catch (e) {
+            console.warn("Could not fetch user IP", e);
+        }
+
+        // 2. Lấy Proxy String (để xem IP đại diện)
+        const proxyString = await getProxyXoay(proxyKey);
+        // proxyString format: IP:PORT:USER:PASS hoặc IP:PORT
+        const proxyIp = proxyString.split(':')[0];
+
+        // 3. Thử gọi đến 11Labs thông qua Relay + Proxy để chắc chắn kết nối OK
+        // Sử dụng RELAY_URL đã gắn cứng
+        // Gọi endpoint nhẹ nhất là /models
+        const response = await fetch(`${RELAY_URL}/models`, {
+            method: 'GET',
+            headers: {
+                "xi-api-key": apiKey,
+                "X-Proxy-Url": proxyString
+            }
+        });
+
+        if (response.ok) {
+            return {
+                myIp,
+                proxyIp,
+                success: true,
+                message: "Kết nối thành công tới ElevenLabs qua Proxy!"
+            };
+        } else {
+             const err = await response.text();
+             return {
+                myIp,
+                proxyIp,
+                success: false,
+                message: `Lỗi kết nối 11Labs: ${err.substring(0, 100)}...`
+            };
+        }
+
+    } catch (e: any) {
+        return {
+            myIp: "Unknown",
+            proxyIp: "Error",
+            success: false,
+            message: `Lỗi: ${e.message}`
+        };
+    }
+}
+
 export async function generateElevenLabsSpeechBytes(
   text: string,
   voiceId: string,
   modelId: string,
   apiKey: string,
   languageCode?: string,
-  baseUrl: string = DEFAULT_API_BASE,
+  baseUrl: string = DEFAULT_API_BASE, // Tham số này vẫn giữ để tương thích ngược, nhưng sẽ bị ghi đè nếu có proxyKey
   settings?: ElevenLabsSettings,
   speed: number = 1.0,
-  proxyKey?: string // Thêm tham số proxyKey
+  proxyKey?: string 
 ): Promise<Uint8Array> {
   if (!apiKey) throw new Error("ElevenLabs API Key is required");
   if (!text.trim()) return new Uint8Array(0);
 
-  const cleanBaseUrl = baseUrl.replace(/\/$/, "");
+  // LOGIC QUAN TRỌNG:
+  // Nếu có proxyKey -> BẮT BUỘC dùng Relay URL đã gắn cứng.
+  // Nếu không có proxyKey -> Dùng baseUrl truyền vào (mặc định là api.elevenlabs.io)
+  let targetBaseUrl = proxyKey ? RELAY_URL : baseUrl;
+  let cleanBaseUrl = targetBaseUrl.replace(/\/$/, "");
 
   // Logic xử lý Proxy
   let proxyUrl = "";
@@ -136,13 +198,10 @@ export async function generateElevenLabsSpeechBytes(
       try {
           proxyUrl = await getProxyXoay(proxyKey);
       } catch (e: any) {
-          // Nếu lấy proxy lỗi, có thể chọn ném lỗi hoặc tiếp tục chạy bằng IP thật.
-          // Ở đây chọn cách throw lỗi để người dùng biết config sai.
           throw new Error(`Proxy Error: ${e.message}`);
       }
   }
 
-  // Default settings if not provided
   const voiceSettings = {
     stability: settings?.stability ?? 0.5,
     similarity_boost: settings?.similarityBoost ?? 0.75,
@@ -156,25 +215,20 @@ export async function generateElevenLabsSpeechBytes(
     voice_settings: voiceSettings,
   };
 
-  // Some newer models support/require language_code for better performance
   if (languageCode) {
     body.language_code = languageCode;
   }
 
-  // Chuẩn bị headers
   const headers: any = {
       "Content-Type": "application/json",
       "xi-api-key": apiKey,
   };
 
-  // Nếu có proxy, thêm vào header để hỗ trợ các tool bắt/redirect request (hoặc nếu người dùng dùng Custom Base URL là 1 Proxy Gateway)
   if (proxyUrl) {
-      // Lưu ý: Trình duyệt mặc định KHÔNG hỗ trợ set proxy cho fetch API trực tiếp.
-      // Dòng này chỉ có tác dụng nếu user dùng Custom Base URL đóng vai trò là Forwarder,
-      // hoặc sử dụng Extension hỗ trợ bắt header này để route.
+      // Gửi header cho Relay Script xử lý
       headers["X-Proxy-Url"] = proxyUrl;
       headers["X-Forwarded-For"] = proxyUrl.split(":")[0]; 
-      console.log(`Requesting ElevenLabs via Proxy Configuration: ${proxyUrl}`);
+      console.log(`Requesting via Relay: ${cleanBaseUrl} with Proxy: ${proxyUrl.split(':')[0]}...`);
   }
 
   const response = await fetch(`${cleanBaseUrl}/text-to-speech/${voiceId}`, {
@@ -190,25 +244,21 @@ export async function generateElevenLabsSpeechBytes(
         const errorJson = JSON.parse(errorText);
         errorMessage = errorJson.detail?.message || errorMessage;
         
-        // Custom check for the common error to give a better hint
         if (errorMessage.includes("selected model can not be used")) {
             errorMessage += " (Hãy thử chọn Model khác như 'Eleven Multilingual v2')";
         }
         
-        // Custom check for Voice Limit error
         if (errorMessage.includes("maximum amount of custom voices")) {
             errorMessage = "Lỗi ElevenLabs: Tài khoản này đã đạt giới hạn giọng tùy chỉnh (Custom Voices). Vui lòng xóa bớt giọng trong VoiceLab.";
         }
 
-        // Custom check for Unusual Activity / Abuse detection
         if (errorMessage.includes("Unusual activity detected")) {
             let msg = "Lỗi ElevenLabs: Phát hiện bất thường (Unusual activity).";
             if (!proxyKey) {
                 msg += " Bạn chưa bật Key Proxy Xoay. Hãy nhập Key Xoay trong cài đặt để đổi IP.";
             } else {
                 msg += " IP Proxy hiện tại có thể đã bị chặn, thử chạy lại để lấy IP mới.";
-                // Invalidate cache to force new proxy next time
-                currentProxy = null;
+                currentProxy = null; // Reset cache
             }
             errorMessage = msg;
         }
@@ -219,7 +269,5 @@ export async function generateElevenLabsSpeechBytes(
   }
 
   const arrayBuffer = await response.arrayBuffer();
-  // Convert MP3/Audio data to raw PCM for compatibility with our utils
-  // Pass speed parameter to handle resampling if needed
   return await decodeAudioDataToPcm(arrayBuffer, speed);
 }

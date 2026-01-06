@@ -1,14 +1,15 @@
 
 import React, { useState, useEffect } from 'react';
 import { KeyIcon } from './icons/KeyIcon';
+import { verifyProxyConnection } from '../services/elevenLabsService';
+import { SpinnerIcon } from './icons/SpinnerIcon';
 
 interface ApiKeyModalProps {
   isOpen: boolean;
   onClose: () => void;
   // ElevenLabs props
   elevenLabsApiKey: string;
-  elevenLabsBaseUrl: string;
-  onElevenLabsConfigChange: (keys: string, baseUrl: string) => void;
+  onElevenLabsConfigChange: (keys: string) => void;
   // Gemini props
   geminiApiKey?: string;
   onGeminiConfigChange?: (key: string) => void;
@@ -21,7 +22,6 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
   isOpen,
   onClose,
   elevenLabsApiKey,
-  elevenLabsBaseUrl,
   onElevenLabsConfigChange,
   geminiApiKey = '',
   onGeminiConfigChange,
@@ -30,7 +30,6 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
 }) => {
   // ElevenLabs local state
   const [elevenLabsKeysInput, setElevenLabsKeysInput] = useState(elevenLabsApiKey);
-  const [elevenLabsUrlInput, setElevenLabsUrlInput] = useState(elevenLabsBaseUrl);
   const [isEditingElevenLabs, setIsEditingElevenLabs] = useState(false);
 
   // Gemini local state
@@ -40,20 +39,22 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
   // Proxy local state
   const [proxyKeyInput, setProxyKeyInput] = useState(proxyKey);
   const [isEditingProxy, setIsEditingProxy] = useState(false);
+  const [isCheckingProxy, setIsCheckingProxy] = useState(false);
+  const [checkResult, setCheckResult] = useState<{myIp: string, proxyIp: string, success: boolean, message: string} | null>(null);
 
   useEffect(() => {
     setElevenLabsKeysInput(elevenLabsApiKey);
-    setElevenLabsUrlInput(elevenLabsBaseUrl);
     setGeminiKeyInput(geminiApiKey);
     setProxyKeyInput(proxyKey);
-  }, [elevenLabsApiKey, elevenLabsBaseUrl, geminiApiKey, proxyKey, isOpen]);
+    setCheckResult(null); // Reset check result when modal opens
+  }, [elevenLabsApiKey, geminiApiKey, proxyKey, isOpen]);
 
   if (!isOpen) {
     return null;
   }
 
   const handleSaveElevenLabs = () => {
-    onElevenLabsConfigChange(elevenLabsKeysInput, elevenLabsUrlInput.trim());
+    onElevenLabsConfigChange(elevenLabsKeysInput);
     setIsEditingElevenLabs(false);
   }
 
@@ -68,7 +69,31 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
       if (onProxyKeyChange) {
           onProxyKeyChange(proxyKeyInput.trim());
           setIsEditingProxy(false);
+          setCheckResult(null); // Reset result on save
       }
+  }
+
+  const handleCheckProxy = async () => {
+      if (!proxyKeyInput) return;
+      
+      // Need at least one 11Labs key to verify connection to 11Labs
+      const keys = elevenLabsKeysInput.split('\n').filter(k => k.trim());
+      if (keys.length === 0) {
+          setCheckResult({
+              myIp: '-', proxyIp: '-', success: false, 
+              message: "Cần nhập API Key ElevenLabs trước để kiểm tra kết nối tới server 11Labs."
+          });
+          return;
+      }
+
+      setIsCheckingProxy(true);
+      setCheckResult(null);
+
+      // Use the first key for verification
+      const result = await verifyProxyConnection(proxyKeyInput.trim(), keys[0].trim());
+      
+      setCheckResult(result);
+      setIsCheckingProxy(false);
   }
 
   const keyCount = elevenLabsApiKey.split('\n').filter(k => k.trim()).length;
@@ -124,9 +149,6 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
                           Cấu hình
                        </button>
                    </div>
-                   <div className="text-xs text-slate-500 truncate">
-                        API Endpoint: {elevenLabsBaseUrl || 'Mặc định'}
-                   </div>
                 </div>
               ) : (
                  <div className="space-y-3">
@@ -139,22 +161,10 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
                             placeholder="xi-api-key-1...&#10;xi-api-key-2..."
                         />
                     </div>
-                    <div>
-                         <label className="block text-xs font-medium text-slate-400 mb-1">
-                             Custom Base URL / Proxy Endpoint (Tùy chọn)
-                             <span className="block text-[10px] text-slate-500 font-normal">Sử dụng nếu bạn có Reverse Proxy riêng để ẩn IP (VD: https://my-proxy.com/v1)</span>
-                         </label>
-                         <input
-                            type="text"
-                            value={elevenLabsUrlInput}
-                            onChange={(e) => setElevenLabsUrlInput(e.target.value)}
-                            className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-300 text-sm hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] transition-colors"
-                            placeholder="https://api.elevenlabs.io/v1"
-                        />
-                    </div>
+                    
                     <div className="flex space-x-2 justify-end">
                          {isEditingElevenLabs && (
-                            <button onClick={() => { setIsEditingElevenLabs(false); setElevenLabsKeysInput(elevenLabsApiKey); setElevenLabsUrlInput(elevenLabsBaseUrl); }} className="text-slate-400 hover:text-white px-3 py-2 text-sm">
+                            <button onClick={() => { setIsEditingElevenLabs(false); setElevenLabsKeysInput(elevenLabsApiKey); }} className="text-slate-400 hover:text-white px-3 py-2 text-sm">
                                Hủy
                             </button>
                          )}
@@ -179,22 +189,56 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
                  )}
               </h3>
               <p className="text-slate-400 text-xs mb-4">
-                Sử dụng Key từ proxyxoay.shop để tự động lấy Proxy khi gọi API (Giúp tránh lỗi 'Unusual activity').
+                Sử dụng Key từ proxyxoay.shop. Khi kích hoạt, tool sẽ tự động kết nối qua server trung gian (gomhuongcanh.vn).
               </p>
 
                {!isEditingProxy && proxyKey ? (
-                <div className="bg-slate-700/50 p-3 rounded-lg border border-slate-600">
-                   <div className="flex items-center justify-between">
-                       <div className="flex items-center">
-                          <KeyIcon />
-                          <span className="ml-3 font-mono text-slate-300 text-sm">
-                              {proxyKey.substring(0, 4)}...{proxyKey.substring(proxyKey.length - 4)}
-                          </span>
-                       </div>
-                       <button onClick={() => setIsEditingProxy(true)} className="text-[--color-primary-400] hover:text-[--color-primary-300] text-sm font-semibold transition-colors">
-                          Cấu hình
-                       </button>
-                   </div>
+                <div className="space-y-3">
+                    <div className="bg-slate-700/50 p-3 rounded-lg border border-slate-600">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center">
+                            <KeyIcon />
+                            <span className="ml-3 font-mono text-slate-300 text-sm">
+                                {proxyKey.substring(0, 4)}...{proxyKey.substring(proxyKey.length - 4)}
+                            </span>
+                        </div>
+                        <button onClick={() => setIsEditingProxy(true)} className="text-[--color-primary-400] hover:text-[--color-primary-300] text-sm font-semibold transition-colors">
+                            Cấu hình
+                        </button>
+                    </div>
+                    </div>
+                    
+                    {/* Check Proxy Area for saved key */}
+                    <div className="border border-slate-700 rounded-lg p-3 bg-slate-900/30">
+                        <div className="flex justify-between items-center mb-2">
+                             <span className="text-xs font-medium text-slate-400">Trạng thái Proxy</span>
+                             <button 
+                                onClick={() => { setProxyKeyInput(proxyKey); handleCheckProxy(); }}
+                                disabled={isCheckingProxy}
+                                className="text-xs bg-slate-600 hover:bg-slate-500 text-white px-2 py-1 rounded flex items-center"
+                             >
+                                 {isCheckingProxy && <SpinnerIcon hasMargin={false} />}
+                                 <span className={isCheckingProxy ? "ml-1" : ""}>{isCheckingProxy ? "Đang ktra..." : "Kiểm tra IP"}</span>
+                             </button>
+                        </div>
+                        {checkResult && (
+                            <div className={`text-xs p-2 rounded ${checkResult.success ? 'bg-green-500/10 text-green-300 border border-green-500/30' : 'bg-red-500/10 text-red-300 border border-red-500/30'}`}>
+                                <div className="font-bold mb-1">{checkResult.message}</div>
+                                {checkResult.success && (
+                                    <div className="grid grid-cols-2 gap-2 mt-2 font-mono text-[10px]">
+                                        <div>
+                                            <span className="block text-slate-500">IP Máy (Gốc)</span>
+                                            <span className="text-slate-300">{checkResult.myIp}</span>
+                                        </div>
+                                        <div>
+                                            <span className="block text-slate-500">IP Proxy (Truy cập 11Lab)</span>
+                                            <span className="text-[--color-primary-300]">{checkResult.proxyIp}</span>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
                 </div>
               ) : (
                 <div className="space-y-3">
@@ -208,15 +252,16 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
                             placeholder="Nhập key xoay..."
                         />
                          <p className="text-[10px] text-slate-500 mt-1">
-                             Tool sẽ tự động gọi API get proxy trước khi tạo giọng nói.
+                             Hệ thống sẽ tự động dùng link trung gian: <span className="text-slate-400 font-mono">https://gomhuongcanh.vn/ai_studio_code.php</span>
                          </p>
                     </div>
                     <div className="flex space-x-2 justify-end">
                          {isEditingProxy && (
-                            <button onClick={() => { setIsEditingProxy(false); setProxyKeyInput(proxyKey); }} className="text-slate-400 hover:text-white px-3 py-2 text-sm">
+                            <button onClick={() => { setIsEditingProxy(false); setProxyKeyInput(proxyKey); setCheckResult(null); }} className="text-slate-400 hover:text-white px-3 py-2 text-sm">
                                Hủy
                             </button>
                          )}
+                         {/* Button Save handles logic */}
                         <button onClick={handleSaveProxy} className="bg-[--color-primary-600] hover:bg-[--color-primary-500] text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm">
                             Lưu Key Proxy
                         </button>

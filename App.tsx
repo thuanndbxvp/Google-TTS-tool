@@ -86,7 +86,6 @@ const App: React.FC = () => {
 
   // ElevenLabs State
   const [elevenLabsApiKey, setElevenLabsApiKey] = useState<string>(''); // Raw string with newlines
-  const [elevenLabsBaseUrl, setElevenLabsBaseUrl] = useState<string>('https://api.elevenlabs.io/v1');
   const [elevenLabsVoices, setElevenLabsVoices] = useState<ElevenLabsVoice[]>([]);
   const [elevenLabsModels, setElevenLabsModels] = useState<ElevenLabsModel[]>([]);
   const [selectedElevenLabsVoice, setSelectedElevenLabsVoice] = useState<string>('');
@@ -154,11 +153,9 @@ const App: React.FC = () => {
   useEffect(() => {
     try {
       const savedElevenLabsKey = localStorage.getItem('elevenLabsApiKey');
-      const savedElevenLabsBaseUrl = localStorage.getItem('elevenLabsBaseUrl');
       const savedProxyKey = localStorage.getItem('proxyKey');
 
       if (savedElevenLabsKey) setElevenLabsApiKey(savedElevenLabsKey);
-      if (savedElevenLabsBaseUrl) setElevenLabsBaseUrl(savedElevenLabsBaseUrl);
       if (savedProxyKey) setProxyKey(savedProxyKey);
     } catch (error) {
       console.error(error);
@@ -218,8 +215,8 @@ const App: React.FC = () => {
         const keyToUse = keys[randomKeyIndex];
 
         Promise.all([
-            fetchElevenLabsVoices(keyToUse, elevenLabsBaseUrl),
-            fetchElevenLabsModels(keyToUse, elevenLabsBaseUrl)
+            fetchElevenLabsVoices(keyToUse), // Default Base URL is fine here, generating is where proxy matters most
+            fetchElevenLabsModels(keyToUse)
         ]).then(([voices, models]) => {
             setElevenLabsVoices(voices);
             setElevenLabsModels(models);
@@ -243,7 +240,7 @@ const App: React.FC = () => {
             setIsLoadingElevenLabs(false);
         });
     }
-  }, [ttsProvider, getElevenLabsKeysList, elevenLabsBaseUrl, elevenLabsVoices.length, selectedElevenLabsModel, useCustomVoiceId, selectedElevenLabsVoice]);
+  }, [ttsProvider, getElevenLabsKeysList, elevenLabsVoices.length, selectedElevenLabsModel, useCustomVoiceId, selectedElevenLabsVoice]);
 
 
   // Cleanup object URLs ONLY on unmount to prevent deleting active URLs during generation
@@ -267,11 +264,9 @@ const App: React.FC = () => {
      setSrtResult(null);
   };
 
-  const saveElevenLabsConfig = (keys: string, baseUrl: string) => {
+  const saveElevenLabsConfig = (keys: string) => {
       setElevenLabsApiKey(keys);
-      setElevenLabsBaseUrl(baseUrl || 'https://api.elevenlabs.io/v1');
       localStorage.setItem('elevenLabsApiKey', keys);
-      localStorage.setItem('elevenLabsBaseUrl', baseUrl || 'https://api.elevenlabs.io/v1');
       // Clear cached data to force refetch if key changes
       setElevenLabsVoices([]); 
       setElevenLabsModels([]);
@@ -374,7 +369,8 @@ const App: React.FC = () => {
            // Randomly select a key for preview
            const randomKey = keys[Math.floor(Math.random() * keys.length)];
            
-           const bytes = await generateElevenLabsSpeechBytes(sampleText, selectedElevenLabsVoice, selectedElevenLabsModel, randomKey, langCode, elevenLabsBaseUrl, elevenLabsSettings, speechSpeed, proxyKey);
+           // Pass undefined for baseUrl so it uses default or Proxy relay internally
+           const bytes = await generateElevenLabsSpeechBytes(sampleText, selectedElevenLabsVoice, selectedElevenLabsModel, randomKey, langCode, undefined, elevenLabsSettings, speechSpeed, proxyKey);
            const blob = createWavBlob(bytes);
            audioUrl = URL.createObjectURL(blob);
       }
@@ -473,7 +469,7 @@ const App: React.FC = () => {
                  while (!success && attempts < elevenLabsKeys.length) {
                     const keyToUse = elevenLabsKeys[elevenLabsKeyIdx];
                     try {
-                        speechBytes = await generateElevenLabsSpeechBytes(sub.text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl, elevenLabsSettings, speechSpeed, proxyKey);
+                        speechBytes = await generateElevenLabsSpeechBytes(sub.text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, undefined, elevenLabsSettings, speechSpeed, proxyKey);
                         success = true;
                         // On success, move to next key for next paragraph (Round Robin)
                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
@@ -533,7 +529,7 @@ const App: React.FC = () => {
                  while (!success && attempts < elevenLabsKeys.length) {
                     const keyToUse = elevenLabsKeys[elevenLabsKeyIdx];
                     try {
-                        speechBytes = await generateElevenLabsSpeechBytes(p, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl, elevenLabsSettings, speechSpeed, proxyKey);
+                        speechBytes = await generateElevenLabsSpeechBytes(p, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, undefined, elevenLabsSettings, speechSpeed, proxyKey);
                         if (speechBytes && speechBytes.length > 0) {
                             success = true;
                         } else {
@@ -598,7 +594,7 @@ const App: React.FC = () => {
                 const randomKeyIdx = Math.floor(Math.random() * elevenLabsKeys.length);
                 const keyToUse = elevenLabsKeys[randomKeyIdx];
                 try {
-                    speechBytes = await generateElevenLabsSpeechBytes(text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, elevenLabsBaseUrl, elevenLabsSettings, speechSpeed, proxyKey);
+                    speechBytes = await generateElevenLabsSpeechBytes(text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, undefined, elevenLabsSettings, speechSpeed, proxyKey);
                      if (speechBytes && speechBytes.length > 0) {
                         success = true;
                     } else {
@@ -1205,7 +1201,6 @@ const App: React.FC = () => {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         elevenLabsApiKey={elevenLabsApiKey}
-        elevenLabsBaseUrl={elevenLabsBaseUrl}
         onElevenLabsConfigChange={saveElevenLabsConfig}
         geminiApiKey={geminiApiKey}
         onGeminiConfigChange={saveGeminiConfig}

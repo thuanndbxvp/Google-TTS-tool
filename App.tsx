@@ -1,3 +1,4 @@
+
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 // Remove JSZip import as we are moving to direct downloads
 // import JSZip from 'jszip'; 
@@ -688,7 +689,7 @@ const App: React.FC = () => {
         <div className="flex-1"></div>
         <div className="text-center flex-grow">
           <h1 className="text-2xl md:text-3xl font-bold text-center text-[--color-primary-400] transition-colors">
-            Chuyển đổi Tệp Văn bản sang Giọng nói
+            TTS tool by StudyAI86
           </h1>
           <p className="text-center text-slate-400 mt-1">Cung cấp bởi Gemini & ElevenLabs</p>
         </div>

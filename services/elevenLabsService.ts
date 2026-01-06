@@ -65,22 +65,35 @@ export async function fetchElevenLabsModels(apiKey: string, baseUrl: string = DE
  * Xử lý dữ liệu trả về từ API ProxyXoay
  */
 function handleProxyResponse(data: any): string {
-    const now = Date.now();
-    if (data.status === 100 && data.proxyhttp) {
+    // API ProxyXoay thường trả về status: 100 nếu thành công
+    // Nếu status != 100, tức là có lỗi (sai key, hết hạn, quá tần suất)
+    if (data.status && data.status !== 100) {
+        throw new Error(`Lỗi ProxyXoay: ${data.msg || data.message || 'Key không hợp lệ hoặc hết hạn'}`);
+    }
+
+    if (data.proxyhttp) {
         currentProxy = data.proxyhttp;
+        const now = Date.now();
+        
+        // Parse ngày hết hạn nếu có
         const dateStr = data["Token expiration date"]; 
         if (dateStr) {
-            const parts = dateStr.split(" ");
-            const timeParts = parts[0].split(":");
-            const dateParts = parts[1].split("-");
-            const expiryDate = new Date(
-                parseInt(dateParts[2]), 
-                parseInt(dateParts[1]) - 1, 
-                parseInt(dateParts[0]), 
-                parseInt(timeParts[0]), 
-                parseInt(timeParts[1])
-            );
-            proxyExpiry = expiryDate.getTime();
+            try {
+                // Format thường gặp: "22:52 19-02-2025" (HH:mm dd-MM-yyyy)
+                const parts = dateStr.split(" ");
+                const timeParts = parts[0].split(":");
+                const dateParts = parts[1].split("-");
+                const expiryDate = new Date(
+                    parseInt(dateParts[2]), 
+                    parseInt(dateParts[1]) - 1, 
+                    parseInt(dateParts[0]), 
+                    parseInt(timeParts[0]), 
+                    parseInt(timeParts[1])
+                );
+                proxyExpiry = expiryDate.getTime();
+            } catch (e) {
+                 proxyExpiry = now + 10 * 60 * 1000; // Fallback 10p
+            }
         } else {
             // Fallback: 10 phút
             proxyExpiry = now + 10 * 60 * 1000;
@@ -88,13 +101,14 @@ function handleProxyResponse(data: any): string {
         console.log("New Proxy Acquired:", currentProxy);
         return currentProxy as string;
     } else {
-        throw new Error(data.message || "Failed to get proxy from proxyxoay");
+        // Trường hợp API trả về JSON nhưng không có proxyhttp (lỗi lạ)
+        throw new Error(JSON.stringify(data));
     }
 }
 
 /**
- * Lấy Proxy từ proxyxoay.shop
- * Có cơ chế Fallback: Thử trực tiếp -> Thử qua Relay
+ * Lấy Proxy từ proxyxoay.shop thông qua Relay Server
+ * Tuyệt đối không gọi trực tiếp từ trình duyệt để tránh CORS
  */
 async function getProxyXoay(keyXoay: string): Promise<string> {
     const now = Date.now();
@@ -105,34 +119,42 @@ async function getProxyXoay(keyXoay: string): Promise<string> {
         return currentProxy;
     }
 
-    // Cách 1: Thử gọi trực tiếp (Nhanh nhất, nhưng có thể bị chặn CORS)
+    // Gọi qua Relay Server
+    // Thêm timestamp `t` để tránh browser cache response cũ
+    const relayUrl = `${RELAY_URL}?action=get_proxy&key=${keyXoay}&t=${now}`;
+    
     try {
-        console.log("Fetching new proxy directly...");
-        const url = `https://proxyxoay.shop/api/get.php?key=${keyXoay}&nhamang=Random&tinhthanh=0`;
-        const res = await fetch(url);
-        const data = await res.json();
+        console.log("Fetching proxy via Relay:", relayUrl);
+        // Đơn giản hóa request để tránh CORS Preflight (OPTIONS)
+        const res = await fetch(relayUrl);
         
-        // Nếu API trả về lỗi status != 100 (VD: sai key), throw luôn để không thử relay
-        if (data.status !== 100) {
-             throw new Error(data.message || "Lỗi từ API ProxyXoay");
+        if (!res.ok) {
+             throw new Error(`Lỗi HTTP ${res.status} từ Server Trung Gian.`);
         }
+
+        const text = await res.text();
+        
+        // Cố gắng parse JSON
+        let data;
+        try {
+            data = JSON.parse(text);
+        } catch (e) {
+            // Nếu server trả về HTML lỗi hoặc text thường
+            console.error("Relay returned non-JSON:", text);
+            throw new Error(`Server trả về dữ liệu không hợp lệ: ${text.substring(0, 50)}...`);
+        }
+
         return handleProxyResponse(data);
 
     } catch (e: any) {
-        // Chỉ khi lỗi mạng (Failed to fetch) hoặc CORS, ta mới thử qua Relay
-        console.warn("Direct proxy fetch failed. Attempting via Relay...", e);
-
-        // Cách 2: Gọi qua Relay Server (Tránh lỗi CORS)
-        try {
-            // Gọi đến file PHP relay với action=get_proxy
-            const relayUrl = `${RELAY_URL}?action=get_proxy&key=${keyXoay}`;
-            const res = await fetch(relayUrl);
-            const data = await res.json();
-            return handleProxyResponse(data);
-        } catch (relayError: any) {
-            // Nếu cả 2 cách đều lỗi
-             throw new Error(`Không thể lấy Proxy (Lỗi mạng/CORS). Vui lòng kiểm tra lại file PHP trên server.`);
+        console.error("Proxy Fetch Error:", e);
+        // Reset cache nếu lỗi
+        currentProxy = null;
+        let msg = e.message;
+        if (msg === 'Failed to fetch') {
+            msg = 'Lỗi kết nối (CORS/Network). Vui lòng kiểm tra lại file PHP trên server gomhuongcanh.vn.';
         }
+        throw new Error(`Lỗi lấy Proxy: ${msg}`);
     }
 }
 
@@ -152,13 +174,12 @@ export async function verifyProxyConnection(proxyKey: string, apiKey: string): P
         }
 
         // 2. Lấy Proxy String (để xem IP đại diện)
+        // Hàm này giờ đã an toàn CORS nhờ qua Relay
         const proxyString = await getProxyXoay(proxyKey);
         // proxyString format: IP:PORT:USER:PASS hoặc IP:PORT
         const proxyIp = proxyString.split(':')[0];
 
         // 3. Thử gọi đến 11Labs thông qua Relay + Proxy để chắc chắn kết nối OK
-        // Sử dụng RELAY_URL đã gắn cứng
-        // Gọi endpoint nhẹ nhất là /models
         const response = await fetch(`${RELAY_URL}/models`, {
             method: 'GET',
             headers: {
@@ -175,12 +196,18 @@ export async function verifyProxyConnection(proxyKey: string, apiKey: string): P
                 message: "Kết nối thành công tới ElevenLabs qua Proxy!"
             };
         } else {
-             const err = await response.text();
+             const errText = await response.text();
+             let msg = `Lỗi kết nối 11Labs: ${errText.substring(0, 100)}`;
+             try {
+                 const errJson = JSON.parse(errText);
+                 if(errJson.detail && errJson.detail.message) msg = `Lỗi 11Labs: ${errJson.detail.message}`;
+             } catch {}
+             
              return {
                 myIp,
                 proxyIp,
                 success: false,
-                message: `Lỗi kết nối 11Labs: ${err.substring(0, 100)}...`
+                message: msg
             };
         }
 

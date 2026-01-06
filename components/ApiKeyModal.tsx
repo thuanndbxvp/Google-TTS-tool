@@ -189,7 +189,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
                  )}
               </h3>
               <p className="text-slate-400 text-xs mb-4">
-                Sử dụng Key từ proxyxoay.shop. Khi kích hoạt, tool sẽ tự động kết nối qua server trung gian.
+                Sử dụng Key từ <a href="https://proxy.vn/?home=proxyxoay" target="_blank" rel="noreferrer" className="text-[--color-primary-400] hover:underline">proxy.vn</a>. Khi kích hoạt, tool sẽ tự động kết nối qua server trung gian.
               </p>
 
                {!isEditingProxy && proxyKey ? (
@@ -243,7 +243,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
               ) : (
                 <div className="space-y-3">
                    <div>
-                        <label className="block text-xs font-medium text-slate-400 mb-1">Key Xoay (proxyxoay.shop)</label>
+                        <label className="block text-xs font-medium text-slate-400 mb-1">Key Xoay (proxy.vn)</label>
                         <input
                             type="text"
                             value={proxyKeyInput}

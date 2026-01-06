@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { KeyIcon } from './icons/KeyIcon';
 
@@ -11,6 +12,9 @@ interface ApiKeyModalProps {
   // Gemini props
   geminiApiKey?: string;
   onGeminiConfigChange?: (key: string) => void;
+  // Proxy props
+  proxyKey?: string;
+  onProxyKeyChange?: (key: string) => void;
 }
 
 export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
@@ -20,7 +24,9 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
   elevenLabsBaseUrl,
   onElevenLabsConfigChange,
   geminiApiKey = '',
-  onGeminiConfigChange
+  onGeminiConfigChange,
+  proxyKey = '',
+  onProxyKeyChange
 }) => {
   // ElevenLabs local state
   const [elevenLabsKeysInput, setElevenLabsKeysInput] = useState(elevenLabsApiKey);
@@ -31,11 +37,16 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
   const [geminiKeyInput, setGeminiKeyInput] = useState(geminiApiKey);
   const [isEditingGemini, setIsEditingGemini] = useState(false);
 
+  // Proxy local state
+  const [proxyKeyInput, setProxyKeyInput] = useState(proxyKey);
+  const [isEditingProxy, setIsEditingProxy] = useState(false);
+
   useEffect(() => {
     setElevenLabsKeysInput(elevenLabsApiKey);
     setElevenLabsUrlInput(elevenLabsBaseUrl);
     setGeminiKeyInput(geminiApiKey);
-  }, [elevenLabsApiKey, elevenLabsBaseUrl, geminiApiKey, isOpen]);
+    setProxyKeyInput(proxyKey);
+  }, [elevenLabsApiKey, elevenLabsBaseUrl, geminiApiKey, proxyKey, isOpen]);
 
   if (!isOpen) {
     return null;
@@ -51,6 +62,13 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
         onGeminiConfigChange(geminiKeyInput.trim());
         setIsEditingGemini(false);
     }
+  }
+
+  const handleSaveProxy = () => {
+      if (onProxyKeyChange) {
+          onProxyKeyChange(proxyKeyInput.trim());
+          setIsEditingProxy(false);
+      }
   }
 
   const keyCount = elevenLabsApiKey.split('\n').filter(k => k.trim()).length;
@@ -142,6 +160,65 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
                          )}
                         <button onClick={handleSaveElevenLabs} className="bg-[--color-primary-600] hover:bg-[--color-primary-500] text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm">
                             Lưu Cấu Hình
+                        </button>
+                    </div>
+                </div>
+              )}
+            </div>
+
+             {/* Proxy Xoay Section */}
+             <div className="mb-4 pt-6 border-t border-slate-600">
+               <h3 className="text-lg font-semibold text-white mb-2 flex items-center justify-between">
+                 <div className="flex items-center">
+                    <span className="bg-gradient-to-r from-green-400 to-teal-500 bg-clip-text text-transparent mr-2">Proxy Xoay</span>
+                 </div>
+                 {!isEditingProxy && proxyKey && (
+                    <span className="text-xs bg-slate-700 text-slate-300 px-2 py-1 rounded-full border border-slate-600">
+                        Đã kích hoạt
+                    </span>
+                 )}
+              </h3>
+              <p className="text-slate-400 text-xs mb-4">
+                Sử dụng Key từ proxyxoay.shop để tự động lấy Proxy khi gọi API (Giúp tránh lỗi 'Unusual activity').
+              </p>
+
+               {!isEditingProxy && proxyKey ? (
+                <div className="bg-slate-700/50 p-3 rounded-lg border border-slate-600">
+                   <div className="flex items-center justify-between">
+                       <div className="flex items-center">
+                          <KeyIcon />
+                          <span className="ml-3 font-mono text-slate-300 text-sm">
+                              {proxyKey.substring(0, 4)}...{proxyKey.substring(proxyKey.length - 4)}
+                          </span>
+                       </div>
+                       <button onClick={() => setIsEditingProxy(true)} className="text-[--color-primary-400] hover:text-[--color-primary-300] text-sm font-semibold transition-colors">
+                          Cấu hình
+                       </button>
+                   </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                   <div>
+                        <label className="block text-xs font-medium text-slate-400 mb-1">Key Xoay (proxyxoay.shop)</label>
+                        <input
+                            type="text"
+                            value={proxyKeyInput}
+                            onChange={(e) => setProxyKeyInput(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-300 text-sm font-mono hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors"
+                            placeholder="Nhập key xoay..."
+                        />
+                         <p className="text-[10px] text-slate-500 mt-1">
+                             Tool sẽ tự động gọi API get proxy trước khi tạo giọng nói.
+                         </p>
+                    </div>
+                    <div className="flex space-x-2 justify-end">
+                         {isEditingProxy && (
+                            <button onClick={() => { setIsEditingProxy(false); setProxyKeyInput(proxyKey); }} className="text-slate-400 hover:text-white px-3 py-2 text-sm">
+                               Hủy
+                            </button>
+                         )}
+                        <button onClick={handleSaveProxy} className="bg-[--color-primary-600] hover:bg-[--color-primary-500] text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm">
+                            Lưu Key Proxy
                         </button>
                     </div>
                 </div>

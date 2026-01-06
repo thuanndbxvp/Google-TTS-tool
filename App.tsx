@@ -297,6 +297,8 @@ const App: React.FC = () => {
   const getElevenLabsLanguageCode = () => {
       // Map app language selection to ISO codes ElevenLabs might use (or for logic)
       if (selectedLanguage === 'vietnam') return 'vi';
+      if (selectedLanguage === 'japan') return 'ja';
+      if (selectedLanguage === 'korea') return 'ko';
       if (selectedLanguage === 'other') return 'en'; // Default or unspecified
       return undefined;
   };
@@ -339,10 +341,16 @@ const App: React.FC = () => {
   
     setIsPreviewLoading(true);
     setError(null);
-    const sampleText = selectedLanguage === 'vietnam'
-        ? "Xin chào, đây là bản xem trước giọng nói của tôi với phong cách bạn đã chọn."
-        : "Hello, this is a preview of my voice.";
     
+    let sampleText = "Hello, this is a preview of my voice.";
+    if (selectedLanguage === 'vietnam') {
+        sampleText = "Xin chào, đây là bản xem trước giọng nói của tôi với phong cách bạn đã chọn.";
+    } else if (selectedLanguage === 'japan') {
+        sampleText = "こんにちは、これは私の声のプレビューです。";
+    } else if (selectedLanguage === 'korea') {
+        sampleText = "안녕하세요, 이것은 제 목소리의 미리보기입니다.";
+    }
+
     try {
       let audioUrl: string;
       if (ttsProvider === 'gemini') {
@@ -757,6 +765,8 @@ const App: React.FC = () => {
                                     className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300"
                                 >
                                     <option value="vietnam">Việt Nam</option>
+                                    <option value="japan">Tiếng Nhật (Japanese)</option>
+                                    <option value="korea">Tiếng Hàn (Korean)</option>
                                     <option value="other">Quốc tế (English)</option>
                                 </select>
                             </div>

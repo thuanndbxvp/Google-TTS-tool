@@ -276,15 +276,25 @@ export async function generateElevenLabsSpeechBytes(
   if (proxyUrl) {
       // Gửi header cho Relay Script xử lý
       headers["X-Proxy-Url"] = proxyUrl;
-      headers["X-Forwarded-For"] = proxyUrl.split(":")[0]; 
+      // Không gửi header X-Forwarded-For vì nó thường gây lỗi CORS Preflight hoặc bị chặn bởi WAF
+      // headers["X-Forwarded-For"] = proxyUrl.split(":")[0]; 
       console.log(`Requesting via Relay: ${cleanBaseUrl} with Proxy: ${proxyUrl.split(':')[0]}...`);
   }
 
-  const response = await fetch(`${cleanBaseUrl}/text-to-speech/${voiceId}`, {
-    method: "POST",
-    headers: headers,
-    body: JSON.stringify(body),
-  });
+  let response;
+  try {
+      response = await fetch(`${cleanBaseUrl}/text-to-speech/${voiceId}`, {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify(body),
+      });
+  } catch (e: any) {
+      // Bắt lỗi Network error / CORS "Failed to fetch"
+      if (e.message === 'Failed to fetch') {
+           throw new Error("Không thể kết nối tới Server Trung Gian. Vui lòng kiểm tra lại Proxy hoặc thử tắt Proxy nếu server hỗ trợ.");
+      }
+      throw e;
+  }
 
   if (!response.ok) {
     const errorText = await response.text();

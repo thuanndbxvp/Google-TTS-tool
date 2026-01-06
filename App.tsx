@@ -208,10 +208,13 @@ const App: React.FC = () => {
     const keys = getElevenLabsKeysList();
     if (ttsProvider === 'elevenlabs' && keys.length > 0 && elevenLabsVoices.length === 0) {
         setIsLoadingElevenLabs(true);
-        // Use the first key for meta-data fetching
+        // Randomly select a key for initial data fetching to rotate load on refresh
+        const randomKeyIndex = Math.floor(Math.random() * keys.length);
+        const keyToUse = keys[randomKeyIndex];
+
         Promise.all([
-            fetchElevenLabsVoices(keys[0], elevenLabsBaseUrl),
-            fetchElevenLabsModels(keys[0], elevenLabsBaseUrl)
+            fetchElevenLabsVoices(keyToUse, elevenLabsBaseUrl),
+            fetchElevenLabsModels(keyToUse, elevenLabsBaseUrl)
         ]).then(([voices, models]) => {
             setElevenLabsVoices(voices);
             setElevenLabsModels(models);
@@ -349,8 +352,11 @@ const App: React.FC = () => {
            const keys = getElevenLabsKeysList();
            if (keys.length === 0) throw new Error("Vui lòng nhập API Key ElevenLabs");
            const langCode = getElevenLabsLanguageCode();
-           // Use first key for preview
-           const bytes = await generateElevenLabsSpeechBytes(sampleText, selectedElevenLabsVoice, selectedElevenLabsModel, keys[0], langCode, elevenLabsBaseUrl, elevenLabsSettings, speechSpeed);
+           
+           // Randomly select a key for preview
+           const randomKey = keys[Math.floor(Math.random() * keys.length)];
+           
+           const bytes = await generateElevenLabsSpeechBytes(sampleText, selectedElevenLabsVoice, selectedElevenLabsModel, randomKey, langCode, elevenLabsBaseUrl, elevenLabsSettings, speechSpeed);
            const blob = createWavBlob(bytes);
            audioUrl = URL.createObjectURL(blob);
       }
@@ -414,7 +420,8 @@ const App: React.FC = () => {
     const instruction = getInstruction();
 
     try {
-      let elevenLabsKeyIdx = 0;
+      // Randomize start index for key usage to distribute load
+      let elevenLabsKeyIdx = Math.floor(Math.random() * elevenLabsKeys.length);
 
       if (fileType === 'srt') {
           const subtitles = parseSrt(fileContent);
@@ -1120,7 +1127,16 @@ const App: React.FC = () => {
             )}
           </div>
 
-          {error && <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-lg mb-4">{error}</div>}
+          {error && (
+              <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-lg mb-4 flex flex-col gap-2">
+                <span>{error}</span>
+                {error.includes("ElevenLabs") && (
+                     <a href="https://elevenlabs.io/app/voice-lab" target="_blank" rel="noreferrer" className="text-sm underline hover:text-white w-fit">
+                        → Quản lý VoiceLab trên ElevenLabs (Xóa bớt giọng)
+                     </a>
+                )}
+              </div>
+          )}
           
           {isLoading && audioResults.length === 0 && (
              <div className="flex flex-col items-center justify-center text-slate-400 h-64">

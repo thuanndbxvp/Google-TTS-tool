@@ -111,6 +111,11 @@ export async function generateElevenLabsSpeechBytes(
         if (errorMessage.includes("selected model can not be used")) {
             errorMessage += " (Hãy thử chọn Model khác như 'Eleven Multilingual v2')";
         }
+        
+        // Custom check for Voice Limit error
+        if (errorMessage.includes("maximum amount of custom voices")) {
+            errorMessage = "Lỗi ElevenLabs: Tài khoản này đã đạt giới hạn giọng tùy chỉnh (Custom Voices). Vui lòng xóa bớt giọng trong VoiceLab.";
+        }
     } catch(e) {
         errorMessage = errorText;
     }

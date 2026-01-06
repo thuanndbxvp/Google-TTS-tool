@@ -62,7 +62,39 @@ export async function fetchElevenLabsModels(apiKey: string, baseUrl: string = DE
 }
 
 /**
+ * Xử lý dữ liệu trả về từ API ProxyXoay
+ */
+function handleProxyResponse(data: any): string {
+    const now = Date.now();
+    if (data.status === 100 && data.proxyhttp) {
+        currentProxy = data.proxyhttp;
+        const dateStr = data["Token expiration date"]; 
+        if (dateStr) {
+            const parts = dateStr.split(" ");
+            const timeParts = parts[0].split(":");
+            const dateParts = parts[1].split("-");
+            const expiryDate = new Date(
+                parseInt(dateParts[2]), 
+                parseInt(dateParts[1]) - 1, 
+                parseInt(dateParts[0]), 
+                parseInt(timeParts[0]), 
+                parseInt(timeParts[1])
+            );
+            proxyExpiry = expiryDate.getTime();
+        } else {
+            // Fallback: 10 phút
+            proxyExpiry = now + 10 * 60 * 1000;
+        }
+        console.log("New Proxy Acquired:", currentProxy);
+        return currentProxy as string;
+    } else {
+        throw new Error(data.message || "Failed to get proxy from proxyxoay");
+    }
+}
+
+/**
  * Lấy Proxy từ proxyxoay.shop
+ * Có cơ chế Fallback: Thử trực tiếp -> Thử qua Relay
  */
 async function getProxyXoay(keyXoay: string): Promise<string> {
     const now = Date.now();
@@ -73,44 +105,34 @@ async function getProxyXoay(keyXoay: string): Promise<string> {
         return currentProxy;
     }
 
+    // Cách 1: Thử gọi trực tiếp (Nhanh nhất, nhưng có thể bị chặn CORS)
     try {
-        console.log("Fetching new proxy from proxyxoay.shop...");
+        console.log("Fetching new proxy directly...");
         const url = `https://proxyxoay.shop/api/get.php?key=${keyXoay}&nhamang=Random&tinhthanh=0`;
         const res = await fetch(url);
         const data = await res.json();
-
-        if (data.status === 100 && data.proxyhttp) {
-            currentProxy = data.proxyhttp;
-            // Parse token expiration date: "22:52 19-02-2025"
-            // Định dạng trả về có vẻ là HH:mm dd-MM-yyyy. Cần parse thủ công vì Date.parse không chuẩn với định dạng này
-            const dateStr = data["Token expiration date"]; // "22:52 19-02-2025"
-            if (dateStr) {
-                const parts = dateStr.split(" ");
-                const timeParts = parts[0].split(":");
-                const dateParts = parts[1].split("-");
-                // new Date(year, monthIndex, day, hours, minutes)
-                const expiryDate = new Date(
-                    parseInt(dateParts[2]), 
-                    parseInt(dateParts[1]) - 1, 
-                    parseInt(dateParts[0]), 
-                    parseInt(timeParts[0]), 
-                    parseInt(timeParts[1])
-                );
-                proxyExpiry = expiryDate.getTime();
-            } else {
-                // Fallback: 10 phút
-                proxyExpiry = now + 10 * 60 * 1000;
-            }
-            console.log("New Proxy Acquired:", currentProxy, "Expires:", new Date(proxyExpiry).toLocaleString());
-            return currentProxy;
-        } else {
-            console.error("ProxyXoay Error:", data);
-            throw new Error(data.message || "Failed to get proxy from proxyxoay");
+        
+        // Nếu API trả về lỗi status != 100 (VD: sai key), throw luôn để không thử relay
+        if (data.status !== 100) {
+             throw new Error(data.message || "Lỗi từ API ProxyXoay");
         }
+        return handleProxyResponse(data);
+
     } catch (e: any) {
-        // Nếu fetch lỗi, xóa cache
-        currentProxy = null;
-        throw new Error(`Lỗi lấy Proxy: ${e.message}`);
+        // Chỉ khi lỗi mạng (Failed to fetch) hoặc CORS, ta mới thử qua Relay
+        console.warn("Direct proxy fetch failed. Attempting via Relay...", e);
+
+        // Cách 2: Gọi qua Relay Server (Tránh lỗi CORS)
+        try {
+            // Gọi đến file PHP relay với action=get_proxy
+            const relayUrl = `${RELAY_URL}?action=get_proxy&key=${keyXoay}`;
+            const res = await fetch(relayUrl);
+            const data = await res.json();
+            return handleProxyResponse(data);
+        } catch (relayError: any) {
+            // Nếu cả 2 cách đều lỗi
+             throw new Error(`Không thể lấy Proxy (Lỗi mạng/CORS). Vui lòng kiểm tra lại file PHP trên server.`);
+        }
     }
 }
 

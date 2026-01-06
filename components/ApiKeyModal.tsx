@@ -189,7 +189,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
                  )}
               </h3>
               <p className="text-slate-400 text-xs mb-4">
-                Sử dụng Key từ proxyxoay.shop. Khi kích hoạt, tool sẽ tự động kết nối qua server trung gian (gomhuongcanh.vn).
+                Sử dụng Key từ proxyxoay.shop. Khi kích hoạt, tool sẽ tự động kết nối qua server trung gian.
               </p>
 
                {!isEditingProxy && proxyKey ? (
@@ -252,7 +252,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
                             placeholder="Nhập key xoay..."
                         />
                          <p className="text-[10px] text-slate-500 mt-1">
-                             Hệ thống sẽ tự động dùng link trung gian: <span className="text-slate-400 font-mono">https://gomhuongcanh.vn/ai_studio_code.php</span>
+                             Hệ thống sẽ tự động kết nối qua server trung gian để bảo mật.
                          </p>
                     </div>
                     <div className="flex space-x-2 justify-end">

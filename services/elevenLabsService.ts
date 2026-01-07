@@ -121,10 +121,12 @@ function handleProxyResponse(data: any): string {
  * Lấy Proxy từ proxyxoay.shop thông qua Relay Server
  * Tuyệt đối không gọi trực tiếp từ trình duyệt để tránh CORS
  */
-async function getProxyXoay(keyXoay: string): Promise<string> {
+async function getProxyXoay(keyXoay: string, isp: string = 'Random', locationId: string = '0'): Promise<string> {
     const now = Date.now();
     
     // Nếu đã có proxy và chưa hết hạn, dùng lại (trừ đi 30s để an toàn)
+    // Lưu ý: Nếu user đổi cấu hình (ISP/Location) thì logic ở App.tsx nên reset currentProxy = null
+    // để hàm này buộc phải lấy proxy mới.
     if (currentProxy && now < proxyExpiry - 30000) {
         console.log("Using Cached Proxy:", currentProxy);
         return currentProxy;
@@ -132,7 +134,8 @@ async function getProxyXoay(keyXoay: string): Promise<string> {
 
     // Gọi qua Relay Server
     // Thêm timestamp `t` để tránh browser cache response cũ
-    const relayUrl = `${RELAY_URL}?action=get_proxy&key=${keyXoay}&t=${now}`;
+    // Thêm param `nhamang` và `tinhthanh`
+    const relayUrl = `${RELAY_URL}?action=get_proxy&key=${keyXoay}&nhamang=${encodeURIComponent(isp)}&tinhthanh=${locationId}&t=${now}`;
     
     try {
         console.log("Fetching proxy via Relay:", relayUrl);
@@ -172,8 +175,11 @@ async function getProxyXoay(keyXoay: string): Promise<string> {
 /**
  * Kiểm tra kết nối Proxy và trả về thông tin IP
  */
-export async function verifyProxyConnection(proxyKey: string, apiKey: string): Promise<{ myIp: string, proxyIp: string, success: boolean, message: string }> {
+export async function verifyProxyConnection(proxyKey: string, apiKey: string, isp: string = 'Random', locationId: string = '0'): Promise<{ myIp: string, proxyIp: string, success: boolean, message: string }> {
     try {
+        // Reset cache để đảm bảo lấy proxy mới đúng theo tiêu chí ISP/Location
+        currentProxy = null;
+        
         // 1. Lấy IP gốc của người dùng
         let myIp = "Unknown";
         try {
@@ -186,7 +192,7 @@ export async function verifyProxyConnection(proxyKey: string, apiKey: string): P
 
         // 2. Lấy Proxy String (để xem IP đại diện)
         // Hàm này giờ đã an toàn CORS nhờ qua Relay
-        const proxyString = await getProxyXoay(proxyKey);
+        const proxyString = await getProxyXoay(proxyKey, isp, locationId);
         // proxyString format: IP:PORT:USER:PASS hoặc IP:PORT
         const proxyIp = proxyString.split(':')[0];
 
@@ -241,7 +247,9 @@ export async function generateElevenLabsSpeechBytes(
   baseUrl: string = DEFAULT_API_BASE, // Tham số này vẫn giữ để tương thích ngược, nhưng sẽ bị ghi đè nếu có proxyKey
   settings?: ElevenLabsSettings,
   speed: number = 1.0,
-  proxyKey?: string 
+  proxyKey?: string,
+  proxyISP: string = 'Random',
+  proxyLocation: string = '0'
 ): Promise<Uint8Array> {
   if (!apiKey) throw new Error("ElevenLabs API Key is required");
   if (!text.trim()) return new Uint8Array(0);
@@ -256,7 +264,7 @@ export async function generateElevenLabsSpeechBytes(
   let proxyUrl = "";
   if (proxyKey) {
       try {
-          proxyUrl = await getProxyXoay(proxyKey);
+          proxyUrl = await getProxyXoay(proxyKey, proxyISP, proxyLocation);
       } catch (e: any) {
           throw new Error(`Proxy Error: ${e.message}`);
       }

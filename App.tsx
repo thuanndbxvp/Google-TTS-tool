@@ -97,6 +97,8 @@ const App: React.FC = () => {
   
   // Proxy Xoay State
   const [proxyKey, setProxyKey] = useState<string>('');
+  const [proxyISP, setProxyISP] = useState<string>('Random');
+  const [proxyLocation, setProxyLocation] = useState<string>('0');
 
   // ElevenLabs Advanced Settings
   const [elevenLabsSettings, setElevenLabsSettings] = useState<ElevenLabsSettings>({
@@ -155,9 +157,13 @@ const App: React.FC = () => {
     try {
       const savedElevenLabsKey = localStorage.getItem('elevenLabsApiKey');
       const savedProxyKey = localStorage.getItem('proxyKey');
+      const savedProxyISP = localStorage.getItem('proxyISP');
+      const savedProxyLocation = localStorage.getItem('proxyLocation');
 
       if (savedElevenLabsKey) setElevenLabsApiKey(savedElevenLabsKey);
       if (savedProxyKey) setProxyKey(savedProxyKey);
+      if (savedProxyISP) setProxyISP(savedProxyISP);
+      if (savedProxyLocation) setProxyLocation(savedProxyLocation);
     } catch (error) {
       console.error(error);
     }
@@ -278,9 +284,13 @@ const App: React.FC = () => {
       localStorage.setItem('geminiApiKey', key);
   }
 
-  const saveProxyConfig = (key: string) => {
+  const saveProxyConfig = (key: string, isp: string, location: string) => {
       setProxyKey(key);
+      setProxyISP(isp);
+      setProxyLocation(location);
       localStorage.setItem('proxyKey', key);
+      localStorage.setItem('proxyISP', isp);
+      localStorage.setItem('proxyLocation', location);
   }
 
   const handleFileSelect = useCallback((content: string, fileName: string) => {
@@ -371,7 +381,19 @@ const App: React.FC = () => {
            const randomKey = keys[Math.floor(Math.random() * keys.length)];
            
            // Pass undefined for baseUrl so it uses default or Proxy relay internally
-           const bytes = await generateElevenLabsSpeechBytes(sampleText, selectedElevenLabsVoice, selectedElevenLabsModel, randomKey, langCode, undefined, elevenLabsSettings, speechSpeed, proxyKey);
+           const bytes = await generateElevenLabsSpeechBytes(
+               sampleText, 
+               selectedElevenLabsVoice, 
+               selectedElevenLabsModel, 
+               randomKey, 
+               langCode, 
+               undefined, 
+               elevenLabsSettings, 
+               speechSpeed, 
+               proxyKey,
+               proxyISP,
+               proxyLocation
+            );
            const blob = createWavBlob(bytes);
            audioUrl = URL.createObjectURL(blob);
       }
@@ -470,7 +492,19 @@ const App: React.FC = () => {
                  while (!success && attempts < elevenLabsKeys.length) {
                     const keyToUse = elevenLabsKeys[elevenLabsKeyIdx];
                     try {
-                        speechBytes = await generateElevenLabsSpeechBytes(sub.text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, undefined, elevenLabsSettings, speechSpeed, proxyKey);
+                        speechBytes = await generateElevenLabsSpeechBytes(
+                            sub.text, 
+                            selectedElevenLabsVoice, 
+                            selectedElevenLabsModel, 
+                            keyToUse, 
+                            langCode, 
+                            undefined, 
+                            elevenLabsSettings, 
+                            speechSpeed, 
+                            proxyKey,
+                            proxyISP,
+                            proxyLocation
+                        );
                         success = true;
                         // On success, move to next key for next paragraph (Round Robin)
                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
@@ -530,7 +564,19 @@ const App: React.FC = () => {
                  while (!success && attempts < elevenLabsKeys.length) {
                     const keyToUse = elevenLabsKeys[elevenLabsKeyIdx];
                     try {
-                        speechBytes = await generateElevenLabsSpeechBytes(p, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, undefined, elevenLabsSettings, speechSpeed, proxyKey);
+                        speechBytes = await generateElevenLabsSpeechBytes(
+                            p, 
+                            selectedElevenLabsVoice, 
+                            selectedElevenLabsModel, 
+                            keyToUse, 
+                            langCode, 
+                            undefined, 
+                            elevenLabsSettings, 
+                            speechSpeed, 
+                            proxyKey,
+                            proxyISP,
+                            proxyLocation
+                        );
                         if (speechBytes && speechBytes.length > 0) {
                             success = true;
                         } else {
@@ -595,7 +641,19 @@ const App: React.FC = () => {
                 const randomKeyIdx = Math.floor(Math.random() * elevenLabsKeys.length);
                 const keyToUse = elevenLabsKeys[randomKeyIdx];
                 try {
-                    speechBytes = await generateElevenLabsSpeechBytes(text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, undefined, elevenLabsSettings, speechSpeed, proxyKey);
+                    speechBytes = await generateElevenLabsSpeechBytes(
+                        text, 
+                        selectedElevenLabsVoice, 
+                        selectedElevenLabsModel, 
+                        keyToUse, 
+                        langCode, 
+                        undefined, 
+                        elevenLabsSettings, 
+                        speechSpeed, 
+                        proxyKey,
+                        proxyISP,
+                        proxyLocation
+                    );
                      if (speechBytes && speechBytes.length > 0) {
                         success = true;
                     } else {
@@ -1206,7 +1264,9 @@ const App: React.FC = () => {
         geminiApiKey={geminiApiKey}
         onGeminiConfigChange={saveGeminiConfig}
         proxyKey={proxyKey}
-        onProxyKeyChange={saveProxyConfig}
+        proxyISP={proxyISP}
+        proxyLocation={proxyLocation}
+        onProxyConfigChange={saveProxyConfig}
       />
     </div>
   );

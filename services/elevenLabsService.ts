@@ -65,10 +65,21 @@ export async function fetchElevenLabsModels(apiKey: string, baseUrl: string = DE
  * Xử lý dữ liệu trả về từ API ProxyXoay
  */
 function handleProxyResponse(data: any): string {
+    // Kiểm tra thông báo lỗi cụ thể về thời gian chờ
+    const rawMsg = data.msg || data.message || '';
+    if (typeof rawMsg === 'string') {
+        // Regex bắt chuỗi: "Con 49s moi co the doi proxy"
+        const waitMatch = rawMsg.match(/Con (\d+)s moi co the doi proxy/i);
+        if (waitMatch) {
+            const seconds = waitMatch[1];
+            throw new Error(`Proxy chưa sẵn sàng đổi IP. Vui lòng đợi ${seconds} giây nữa rồi thử lại.`);
+        }
+    }
+
     // API ProxyXoay thường trả về status: 100 nếu thành công
     // Nếu status != 100, tức là có lỗi (sai key, hết hạn, quá tần suất)
     if (data.status && data.status !== 100) {
-        throw new Error(`Lỗi ProxyXoay: ${data.msg || data.message || 'Key không hợp lệ hoặc hết hạn'}`);
+        throw new Error(`Lỗi ProxyXoay: ${rawMsg || 'Key không hợp lệ hoặc hết hạn'}`);
     }
 
     if (data.proxyhttp) {

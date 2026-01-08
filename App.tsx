@@ -504,6 +504,7 @@ const App: React.FC = () => {
             } else {
                  let attempts = 0;
                  let success = false;
+                 let lastError: Error | null = null;
                  
                  // Skip known bad keys at start of attempt
                  while(badKeys.has(elevenLabsKeyIdx) && badKeys.size < elevenLabsKeys.length) {
@@ -535,16 +536,35 @@ const App: React.FC = () => {
                         success = true;
                         // On success, move to next key for next paragraph (Round Robin)
                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
-                    } catch (err) {
+                    } catch (err: any) {
                          console.warn(`Key index ${elevenLabsKeyIdx} failed:`, err);
-                         // Mark this key as bad so we skip it next time
-                         badKeys.add(elevenLabsKeyIdx);
+                         lastError = err;
+                         const msg = err.message ? err.message.toLowerCase() : "";
+                         
+                         // CRITICAL FIX: Only mark key as bad if it's explicitly an account/quota error
+                         // Do NOT mark bad if it's a Proxy or Network error
+                         const isKeyError = msg.includes("quota") || msg.includes("unauthorized") || msg.includes("invalid") || msg.includes("custom voices") || msg.includes("tier");
+                         
+                         if (isKeyError) {
+                             badKeys.add(elevenLabsKeyIdx);
+                         } else {
+                             // Proxy/Network error: Keep key, but maybe wait a bit or just try next key/proxy loop
+                             console.log("Non-key error (Proxy/Network), keeping key in rotation.");
+                         }
+                         
                          attempts++;
-                         // Try next key immediately
+                         // Try next key immediately (Round Robin)
                          elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
                     }
                  }
-                 if (!success) throw new Error(`Không thể tạo audio cho đoạn ${i+1}. Vui lòng kiểm tra lại Key.`);
+                 if (!success) {
+                      if (badKeys.size >= elevenLabsKeys.length) {
+                          throw new Error("Hết tất cả các API Key khả dụng (Quota/Auth). Vui lòng thêm Key mới.");
+                      } else {
+                          // Failed but keys are theoretically okay -> Network/Proxy error
+                          throw new Error(`Lỗi kết nối/Proxy (Đã thử hết vòng): ${lastError?.message || 'Unknown'}`);
+                      }
+                 }
             }
 
             if (speechBytes && speechBytes.length > 0) {
@@ -586,6 +606,7 @@ const App: React.FC = () => {
             } else {
                  let attempts = 0;
                  let success = false;
+                 let lastError: Error | null = null;
                  
                  // Fast forward past bad keys
                  while(badKeys.has(elevenLabsKeyIdx) && badKeys.size < elevenLabsKeys.length) {
@@ -621,14 +642,31 @@ const App: React.FC = () => {
                             throw new Error("Empty audio bytes returned");
                         }
                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
-                    } catch (err) {
+                    } catch (err: any) {
                         console.warn(`Key index ${elevenLabsKeyIdx} failed. Switching...`, err);
-                        badKeys.add(elevenLabsKeyIdx); // Mark bad
+                        lastError = err;
+                        const msg = err.message ? err.message.toLowerCase() : "";
+
+                        // CRITICAL FIX: Only mark key as bad if it's explicitly an account/quota error
+                        const isKeyError = msg.includes("quota") || msg.includes("unauthorized") || msg.includes("invalid") || msg.includes("custom voices") || msg.includes("tier");
+
+                        if (isKeyError) {
+                            badKeys.add(elevenLabsKeyIdx);
+                        } else {
+                            console.log("Non-key error (Proxy/Network), keeping key in rotation.");
+                        }
+
                         attempts++;
                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
                     }
                  }
-                 if (!success) throw new Error("Hết tất cả các API Key khả dụng. Vui lòng thêm Key mới.");
+                 if (!success) {
+                     if (badKeys.size >= elevenLabsKeys.length) {
+                         throw new Error("Hết tất cả các API Key khả dụng (Quota/Auth). Vui lòng thêm Key mới.");
+                     } else {
+                         throw new Error(`Lỗi kết nối/Proxy (Đã thử hết vòng): ${lastError?.message || 'Unknown'}`);
+                     }
+                 }
 
                  const blob = createWavBlob(speechBytes);
                  if (blob.size <= 44) throw new Error("Generated audio is empty/silent");
@@ -680,6 +718,7 @@ const App: React.FC = () => {
              // Try ALL keys sequentially starting from a random index
              const startIdx = Math.floor(Math.random() * elevenLabsKeys.length);
              let attempts = 0;
+             let lastError: Error | null = null;
              
              while(!success && attempts < elevenLabsKeys.length) {
                 const currentIdx = (startIdx + attempts) % elevenLabsKeys.length;
@@ -705,13 +744,16 @@ const App: React.FC = () => {
                     } else {
                         throw new Error("Empty bytes");
                     }
-                } catch(e) {
+                } catch(e: any) {
                     console.warn(`Key ${currentIdx} failed regeneration:`, e);
+                    lastError = e;
                     attempts++;
                 }
              }
              
-             if (!success || speechBytes.length === 0) throw new Error("Đã thử tất cả các Key nhưng đều thất bại.");
+             if (!success || speechBytes.length === 0) {
+                 throw new Error(lastError?.message || "Đã thử tất cả các Key nhưng đều thất bại.");
+             }
              
              const blob = createWavBlob(speechBytes);
              if (blob.size <= 44) throw new Error("Generated audio is empty");

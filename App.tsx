@@ -89,14 +89,11 @@ const App: React.FC = () => {
   const [elevenLabsVoices, setElevenLabsVoices] = useState<ElevenLabsVoice[]>([]);
   const [elevenLabsModels, setElevenLabsModels] = useState<ElevenLabsModel[]>([]);
   const [selectedElevenLabsVoice, setSelectedElevenLabsVoice] = useState<string>('');
-  const [selectedElevenLabsModel, setSelectedElevenLabsModel] = useState<string>('eleven_multilingual_v2');
+  const [selectedElevenLabsModel, setSelectedElevenLabsModel] = useState<string>('eleven_turbo_v2_5');
   const [isLoadingElevenLabs, setIsLoadingElevenLabs] = useState<boolean>(false);
   const [useCustomVoiceId, setUseCustomVoiceId] = useState<boolean>(false);
   const [showFeaturedVoices, setShowFeaturedVoices] = useState<boolean>(true);
   
-  // Proxy Xoay State
-  const [proxyKey, setProxyKey] = useState<string>('');
-
   // ElevenLabs Advanced Settings
   const [elevenLabsSettings, setElevenLabsSettings] = useState<ElevenLabsSettings>({
     stability: 0.5,
@@ -105,9 +102,6 @@ const App: React.FC = () => {
     useSpeakerBoost: true
   });
   const [isAdvancedSettingsOpen, setIsAdvancedSettingsOpen] = useState<boolean>(false);
-
-  // Common Settings
-  const [speechSpeed, setSpeechSpeed] = useState<number>(1.0);
 
   // Common State
   const [audioResults, setAudioResults] = useState<AudioResult[]>([]);
@@ -149,14 +143,12 @@ const App: React.FC = () => {
     localStorage.setItem('app-theme', theme);
   }, [theme]);
   
-  // Load ElevenLabs config and Proxy Key
+  // Load ElevenLabs config
   useEffect(() => {
     try {
       const savedElevenLabsKey = localStorage.getItem('elevenLabsApiKey');
-      const savedProxyKey = localStorage.getItem('proxyKey');
 
       if (savedElevenLabsKey) setElevenLabsApiKey(savedElevenLabsKey);
-      if (savedProxyKey) setProxyKey(savedProxyKey);
     } catch (error) {
       console.error(error);
     }
@@ -210,13 +202,10 @@ const App: React.FC = () => {
     const keys = getElevenLabsKeysList();
     if (ttsProvider === 'elevenlabs' && keys.length > 0 && elevenLabsVoices.length === 0) {
         setIsLoadingElevenLabs(true);
-        // Randomly select a key for initial data fetching to rotate load on refresh
-        const randomKeyIndex = Math.floor(Math.random() * keys.length);
-        const keyToUse = keys[randomKeyIndex];
-
+        // Use the first key for meta-data fetching
         Promise.all([
-            fetchElevenLabsVoices(keyToUse), // Default Base URL is fine here, generating is where proxy matters most
-            fetchElevenLabsModels(keyToUse)
+            fetchElevenLabsVoices(keys[0]),
+            fetchElevenLabsModels(keys[0])
         ]).then(([voices, models]) => {
             setElevenLabsVoices(voices);
             setElevenLabsModels(models);
@@ -228,8 +217,8 @@ const App: React.FC = () => {
             // Ensure default model exists or select the first available one
             if (!models.some(m => m.model_id === selectedElevenLabsModel)) {
                  // Ưu tiên chọn các model phổ biến nếu có
-                 const preferredModel = models.find(m => m.model_id === 'eleven_multilingual_v2') 
-                                     || models.find(m => m.model_id === 'eleven_turbo_v2_5')
+                 const preferredModel = models.find(m => m.model_id === 'eleven_turbo_v2_5') 
+                                     || models.find(m => m.model_id === 'eleven_multilingual_v2')
                                      || models[0];
                  if (preferredModel) setSelectedElevenLabsModel(preferredModel.model_id);
             }
@@ -277,11 +266,6 @@ const App: React.FC = () => {
       localStorage.setItem('geminiApiKey', key);
   }
 
-  const saveProxyConfig = (key: string) => {
-      setProxyKey(key);
-      localStorage.setItem('proxyKey', key);
-  }
-
   const handleFileSelect = useCallback((content: string, fileName: string) => {
     const extension = fileName.split('.').pop()?.toLowerCase();
     if (extension === 'txt') setFileType('txt');
@@ -302,8 +286,6 @@ const App: React.FC = () => {
   const getElevenLabsLanguageCode = () => {
       // Map app language selection to ISO codes ElevenLabs might use (or for logic)
       if (selectedLanguage === 'vietnam') return 'vi';
-      if (selectedLanguage === 'japan') return 'ja';
-      if (selectedLanguage === 'korea') return 'ko';
       if (selectedLanguage === 'other') return 'en'; // Default or unspecified
       return undefined;
   };
@@ -346,31 +328,21 @@ const App: React.FC = () => {
   
     setIsPreviewLoading(true);
     setError(null);
+    const sampleText = selectedLanguage === 'vietnam'
+        ? "Xin chào, đây là bản xem trước giọng nói của tôi với phong cách bạn đã chọn."
+        : "Hello, this is a preview of my voice.";
     
-    let sampleText = "Hello, this is a preview of my voice.";
-    if (selectedLanguage === 'vietnam') {
-        sampleText = "Xin chào, đây là bản xem trước giọng nói của tôi với phong cách bạn đã chọn.";
-    } else if (selectedLanguage === 'japan') {
-        sampleText = "こんにちは、これは私の声のプレビューです。";
-    } else if (selectedLanguage === 'korea') {
-        sampleText = "안녕하세요, 이것은 제 목소리의 미리보기입니다.";
-    }
-
     try {
       let audioUrl: string;
       if (ttsProvider === 'gemini') {
            const instruction = getInstruction();
-           audioUrl = await generateSpeech(instruction + sampleText, selectedGeminiVoice, geminiApiKey, speechSpeed);
+           audioUrl = await generateSpeech(instruction + sampleText, selectedGeminiVoice, geminiApiKey);
       } else {
            const keys = getElevenLabsKeysList();
            if (keys.length === 0) throw new Error("Vui lòng nhập API Key ElevenLabs");
            const langCode = getElevenLabsLanguageCode();
-           
-           // Randomly select a key for preview
-           const randomKey = keys[Math.floor(Math.random() * keys.length)];
-           
-           // Pass undefined for baseUrl so it uses default or Proxy relay internally
-           const bytes = await generateElevenLabsSpeechBytes(sampleText, selectedElevenLabsVoice, selectedElevenLabsModel, randomKey, langCode, undefined, elevenLabsSettings, speechSpeed, proxyKey);
+           // Use first key for preview
+           const bytes = await generateElevenLabsSpeechBytes(sampleText, selectedElevenLabsVoice, selectedElevenLabsModel, keys[0], langCode, undefined, elevenLabsSettings);
            const blob = createWavBlob(bytes);
            audioUrl = URL.createObjectURL(blob);
       }
@@ -434,8 +406,7 @@ const App: React.FC = () => {
     const instruction = getInstruction();
 
     try {
-      // Randomize start index for key usage to distribute load
-      let elevenLabsKeyIdx = Math.floor(Math.random() * elevenLabsKeys.length);
+      let elevenLabsKeyIdx = 0;
 
       if (fileType === 'srt') {
           const subtitles = parseSrt(fileContent);
@@ -460,7 +431,7 @@ const App: React.FC = () => {
             let speechBytes: Uint8Array = new Uint8Array(0);
 
             if (ttsProvider === 'gemini') {
-                 speechBytes = await generateSpeechBytes(textToRead, selectedGeminiVoice, geminiApiKey, speechSpeed);
+                 speechBytes = await generateSpeechBytes(textToRead, selectedGeminiVoice, geminiApiKey);
                  // Delay for Gemini Rate Limit
                  if (i < subtitles.length - 1) await new Promise(r => setTimeout(r, 21000));
             } else {
@@ -469,7 +440,7 @@ const App: React.FC = () => {
                  while (!success && attempts < elevenLabsKeys.length) {
                     const keyToUse = elevenLabsKeys[elevenLabsKeyIdx];
                     try {
-                        speechBytes = await generateElevenLabsSpeechBytes(sub.text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, undefined, elevenLabsSettings, speechSpeed, proxyKey);
+                        speechBytes = await generateElevenLabsSpeechBytes(sub.text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, undefined, elevenLabsSettings);
                         success = true;
                         // On success, move to next key for next paragraph (Round Robin)
                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
@@ -521,7 +492,7 @@ const App: React.FC = () => {
             let speechBytes: Uint8Array = new Uint8Array(0);
 
             if (ttsProvider === 'gemini') {
-                 audioUrl = await generateSpeech(textToRead, selectedGeminiVoice, geminiApiKey, speechSpeed);
+                 audioUrl = await generateSpeech(textToRead, selectedGeminiVoice, geminiApiKey);
                  if (i < paragraphs.length - 1) await new Promise(r => setTimeout(r, 21000));
             } else {
                  let attempts = 0;
@@ -529,7 +500,7 @@ const App: React.FC = () => {
                  while (!success && attempts < elevenLabsKeys.length) {
                     const keyToUse = elevenLabsKeys[elevenLabsKeyIdx];
                     try {
-                        speechBytes = await generateElevenLabsSpeechBytes(p, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, undefined, elevenLabsSettings, speechSpeed, proxyKey);
+                        speechBytes = await generateElevenLabsSpeechBytes(p, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, undefined, elevenLabsSettings);
                         if (speechBytes && speechBytes.length > 0) {
                             success = true;
                         } else {
@@ -582,7 +553,7 @@ const App: React.FC = () => {
         let speechBytes: Uint8Array = new Uint8Array(0);
 
         if (ttsProvider === 'gemini') {
-            audioUrl = await generateSpeech(textToRead, selectedGeminiVoice, geminiApiKey, speechSpeed);
+            audioUrl = await generateSpeech(textToRead, selectedGeminiVoice, geminiApiKey);
         } else {
              // For regeneration, we just pick a random key to distribute load
              if (elevenLabsKeys.length === 0) throw new Error("No ElevenLabs keys");
@@ -594,7 +565,7 @@ const App: React.FC = () => {
                 const randomKeyIdx = Math.floor(Math.random() * elevenLabsKeys.length);
                 const keyToUse = elevenLabsKeys[randomKeyIdx];
                 try {
-                    speechBytes = await generateElevenLabsSpeechBytes(text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, undefined, elevenLabsSettings, speechSpeed, proxyKey);
+                    speechBytes = await generateElevenLabsSpeechBytes(text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, undefined, elevenLabsSettings);
                      if (speechBytes && speechBytes.length > 0) {
                         success = true;
                     } else {
@@ -771,35 +742,8 @@ const App: React.FC = () => {
                                     className="w-full bg-slate-900/50 border border-slate-600 rounded-lg p-3 text-slate-300"
                                 >
                                     <option value="vietnam">Việt Nam</option>
-                                    <option value="japan">Tiếng Nhật (Japanese)</option>
-                                    <option value="korea">Tiếng Hàn (Korean)</option>
                                     <option value="other">Quốc tế (English)</option>
                                 </select>
-                            </div>
-
-                            {/* Speed Control (Shared for both providers) */}
-                            <div>
-                                <div className="flex items-center justify-between text-sm font-medium text-slate-400 mb-2">
-                                    <div className="flex items-center">
-                                        <span>Tốc độ đọc</span>
-                                        <InfoTooltip text="Điều chỉnh tốc độ phát lại. Tốc độ > 1.0 sẽ nhanh hơn, < 1.0 sẽ chậm hơn." />
-                                    </div>
-                                    <span className="text-[--color-primary-300] font-mono">{speechSpeed.toFixed(1)}x</span>
-                                </div>
-                                <div className="flex items-center space-x-3">
-                                    <span className="text-xs text-slate-500">0.5x</span>
-                                    <input
-                                        type="range"
-                                        min="0.5"
-                                        max="2.0"
-                                        step="0.1"
-                                        value={speechSpeed}
-                                        onChange={(e) => setSpeechSpeed(parseFloat(e.target.value))}
-                                        className="flex-grow h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-[--color-primary-500]"
-                                        disabled={isDisabled}
-                                    />
-                                    <span className="text-xs text-slate-500">2.0x</span>
-                                </div>
                             </div>
 
                             {ttsProvider === 'gemini' ? (
@@ -875,7 +819,7 @@ const App: React.FC = () => {
                                         >
                                             {elevenLabsModels.length > 0 
                                                 ? elevenLabsModels.map(m => <option key={m.model_id} value={m.model_id}>{m.name}</option>)
-                                                : <option value="eleven_multilingual_v2">Eleven Multilingual v2</option>
+                                                : <option value="eleven_turbo_v2_5">Eleven Turbo v2.5</option>
                                             }
                                         </select>
                                         {selectedLanguage === 'vietnam' && selectedElevenLabsModel.includes('english') && (
@@ -1143,16 +1087,7 @@ const App: React.FC = () => {
             )}
           </div>
 
-          {error && (
-              <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-lg mb-4 flex flex-col gap-2">
-                <span>{error}</span>
-                {error.includes("ElevenLabs") && (
-                     <a href="https://elevenlabs.io/app/voice-lab" target="_blank" rel="noreferrer" className="text-sm underline hover:text-white w-fit">
-                        → Quản lý VoiceLab trên ElevenLabs (Xóa bớt giọng)
-                     </a>
-                )}
-              </div>
-          )}
+          {error && <div className="bg-red-500/20 border border-red-500 text-red-300 p-3 rounded-lg mb-4">{error}</div>}
           
           {isLoading && audioResults.length === 0 && (
              <div className="flex flex-col items-center justify-center text-slate-400 h-64">
@@ -1204,8 +1139,6 @@ const App: React.FC = () => {
         onElevenLabsConfigChange={saveElevenLabsConfig}
         geminiApiKey={geminiApiKey}
         onGeminiConfigChange={saveGeminiConfig}
-        proxyKey={proxyKey}
-        onProxyKeyChange={saveProxyConfig}
       />
     </div>
   );

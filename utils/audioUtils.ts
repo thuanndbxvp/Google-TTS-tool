@@ -16,23 +16,15 @@ export function decode(base64: string): Uint8Array {
 }
 
 // Converts an ArrayBuffer (e.g. from MP3 fetch) to PCM Uint8Array using Web Audio API
-// Supports speed adjustment via playbackRate
-export async function decodeAudioDataToPcm(audioData: ArrayBuffer, speed: number = 1.0): Promise<Uint8Array> {
+export async function decodeAudioDataToPcm(audioData: ArrayBuffer): Promise<Uint8Array> {
   // We use an OfflineAudioContext to decode and resample to our target SAMPLE_RATE (24000)
   const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
   const audioCtx = new AudioContextClass({ sampleRate: SAMPLE_RATE });
-  
-  // Decode the original audio data
   const audioBuffer = await audioCtx.decodeAudioData(audioData);
 
-  // Calculate new duration based on speed
-  // Speed > 1 means shorter duration, Speed < 1 means longer duration
-  const newDuration = audioBuffer.duration / speed;
-
-  const offlineCtx = new OfflineAudioContext(NUM_CHANNELS, Math.ceil(newDuration * SAMPLE_RATE), SAMPLE_RATE);
+  const offlineCtx = new OfflineAudioContext(NUM_CHANNELS, audioBuffer.duration * SAMPLE_RATE, SAMPLE_RATE);
   const source = offlineCtx.createBufferSource();
   source.buffer = audioBuffer;
-  source.playbackRate.value = speed;
   source.connect(offlineCtx.destination);
   source.start();
 
@@ -48,52 +40,6 @@ export async function decodeAudioDataToPcm(audioData: ArrayBuffer, speed: number
   }
 
   return new Uint8Array(pcmData.buffer);
-}
-
-// Process raw PCM data to change its speed
-export async function changePcmSpeed(pcmData: Uint8Array, speed: number): Promise<Uint8Array> {
-    if (speed === 1.0) return pcmData;
-
-    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-    const tempCtx = new AudioContextClass({ sampleRate: SAMPLE_RATE });
-    
-    // Convert Int16 PCM to Float32 for Web Audio API
-    const int16 = new Int16Array(pcmData.buffer);
-    const float32 = new Float32Array(int16.length);
-    for (let i = 0; i < int16.length; i++) {
-        float32[i] = int16[i] / 32768.0;
-    }
-
-    // Create a temporary AudioBuffer
-    const audioBuffer = tempCtx.createBuffer(NUM_CHANNELS, float32.length, SAMPLE_RATE);
-    audioBuffer.copyToChannel(float32, 0);
-
-    // Render with new speed
-    const newDuration = audioBuffer.duration / speed;
-    // Ensure minimum length to avoid errors
-    const targetLength = Math.max(1, Math.ceil(newDuration * SAMPLE_RATE));
-    
-    const offlineCtx = new OfflineAudioContext(NUM_CHANNELS, targetLength, SAMPLE_RATE);
-    const source = offlineCtx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.playbackRate.value = speed;
-    source.connect(offlineCtx.destination);
-    source.start();
-
-    const renderedBuffer = await offlineCtx.startRendering();
-    const renderedData = renderedBuffer.getChannelData(0);
-
-    // Convert back to Int16 PCM
-    const resultInt16 = new Int16Array(renderedData.length);
-    for (let i = 0; i < renderedData.length; i++) {
-        const s = Math.max(-1, Math.min(1, renderedData[i]));
-        resultInt16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-    }
-    
-    // Close the temp context if possible (though AudioContext implies GC usually)
-    if (tempCtx.state !== 'closed') void tempCtx.close();
-
-    return new Uint8Array(resultInt16.buffer);
 }
 
 // Creates a WAV file Blob from raw PCM data (16-bit, 24kHz, mono).

@@ -1,7 +1,7 @@
 import { GoogleGenAI, Modality } from "@google/genai";
-import { decode, createWavBlob, changePcmSpeed } from "../utils/audioUtils";
+import { decode, createWavBlob } from "../utils/audioUtils";
 
-export async function generateSpeechBytes(text: string, voice: string, apiKey?: string, speed: number = 1.0): Promise<Uint8Array> {
+export async function generateSpeechBytes(text: string, voice: string, apiKey?: string): Promise<Uint8Array> {
   const key = apiKey || process.env.API_KEY;
   if (!key) {
     throw new Error("API key is required. Please set it in Settings.");
@@ -33,19 +33,12 @@ export async function generateSpeechBytes(text: string, voice: string, apiKey?: 
     throw new Error("API did not return audio data.");
   }
 
-  const pcmData = decode(base64Audio);
-  
-  // Post-process for speed adjustment
-  if (speed !== 1.0) {
-      return await changePcmSpeed(pcmData, speed);
-  }
-  
-  return pcmData;
+  return decode(base64Audio);
 }
 
 
-export async function generateSpeech(text: string, voice: string, apiKey?: string, speed: number = 1.0): Promise<string> {
-  const audioBytes = await generateSpeechBytes(text, voice, apiKey, speed);
+export async function generateSpeech(text: string, voice: string, apiKey?: string): Promise<string> {
+  const audioBytes = await generateSpeechBytes(text, voice, apiKey);
   const wavBlob = createWavBlob(audioBytes);
   const audioUrl = URL.createObjectURL(wavBlob);
   return audioUrl;

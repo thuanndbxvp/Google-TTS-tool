@@ -216,8 +216,10 @@ const App: React.FC = () => {
             }
             // Ensure default model exists or select the first available one
             if (!models.some(m => m.model_id === selectedElevenLabsModel)) {
-                 // Ưu tiên chọn các model phổ biến nếu có
-                 const preferredModel = models.find(m => m.model_id === 'eleven_turbo_v2_5') 
+                 // Ưu tiên chọn model v3 hoặc các model phổ biến
+                 const preferredModel = models.find(m => m.name.toLowerCase().includes('v3')) // Ưu tiên v3
+                                     || models.find(m => m.model_id === 'eleven_flash_v2_5')
+                                     || models.find(m => m.model_id === 'eleven_turbo_v2_5') 
                                      || models.find(m => m.model_id === 'eleven_multilingual_v2')
                                      || models[0];
                  if (preferredModel) setSelectedElevenLabsModel(preferredModel.model_id);
@@ -819,7 +821,7 @@ const App: React.FC = () => {
                                         >
                                             {elevenLabsModels.length > 0 
                                                 ? elevenLabsModels.map(m => <option key={m.model_id} value={m.model_id}>{m.name}</option>)
-                                                : <option value="eleven_turbo_v2_5">Eleven Turbo v2.5</option>
+                                                : <option value="eleven_turbo_v2_5">Eleven v3 (alpha)</option>
                                             }
                                         </select>
                                         {selectedLanguage === 'vietnam' && selectedElevenLabsModel.includes('english') && (

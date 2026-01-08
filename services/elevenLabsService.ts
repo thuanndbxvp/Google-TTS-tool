@@ -67,10 +67,20 @@ export async function fetchElevenLabsModels(apiKey: string, baseUrl: string = DE
 function handleProxyResponse(data: any): string {
     // Kiểm tra thông báo lỗi cụ thể về thời gian chờ
     const rawMsg = data.msg || data.message || '';
+    
+    // LOGIC FIX: Nếu server báo đợi (Cooldown)
     if (typeof rawMsg === 'string') {
-        // Regex bắt chuỗi: "Con 49s moi co the doi proxy"
         const waitMatch = rawMsg.match(/Con (\d+)s moi co the doi proxy/i);
         if (waitMatch) {
+            // NẾU ĐÃ CÓ PROXY TRONG CACHE -> DÙNG LẠI (IP Thật không đổi, nhưng vẫn kết nối được)
+            if (currentProxy) {
+                console.warn(`Proxy rotation cooldown (${waitMatch[1]}s). Reusing cached proxy to maintain 'Real IP' session.`);
+                // Gia hạn thời gian cache thêm 1 chút để tránh spam request
+                proxyExpiry = Date.now() + (parseInt(waitMatch[1]) * 1000); 
+                return currentProxy;
+            }
+            
+            // Nếu không có cache mà bị bắt đợi -> Buộc phải báo lỗi
             const seconds = waitMatch[1];
             throw new Error(`Proxy chưa sẵn sàng đổi IP. Vui lòng đợi ${seconds} giây nữa rồi thử lại.`);
         }
@@ -125,8 +135,6 @@ async function getProxyXoay(keyXoay: string, isp: string = 'Random', locationId:
     const now = Date.now();
     
     // Nếu đã có proxy và chưa hết hạn, dùng lại (trừ đi 30s để an toàn)
-    // Lưu ý: Nếu user đổi cấu hình (ISP/Location) thì logic ở App.tsx nên reset currentProxy = null
-    // để hàm này buộc phải lấy proxy mới.
     if (currentProxy && now < proxyExpiry - 30000) {
         console.log("Using Cached Proxy:", currentProxy);
         return currentProxy;
@@ -162,7 +170,14 @@ async function getProxyXoay(keyXoay: string, isp: string = 'Random', locationId:
 
     } catch (e: any) {
         console.error("Proxy Fetch Error:", e);
-        // Reset cache nếu lỗi
+        
+        // LOGIC FIX: Nếu lỗi mạng khi fetch proxy mới, nhưng ta vẫn còn cache cũ (dù có thể hết hạn logic), hãy cố dùng lại nó
+        if (currentProxy) {
+            console.warn("Error fetching new proxy, using cached proxy as fallback:", e.message);
+            return currentProxy;
+        }
+
+        // Reset cache nếu lỗi hoàn toàn
         currentProxy = null;
         let msg = e.message;
         if (msg === 'Failed to fetch') {
@@ -177,8 +192,9 @@ async function getProxyXoay(keyXoay: string, isp: string = 'Random', locationId:
  */
 export async function verifyProxyConnection(proxyKey: string, apiKey: string, isp: string = 'Random', locationId: string = '0'): Promise<{ myIp: string, proxyIp: string, success: boolean, message: string }> {
     try {
-        // Reset cache để đảm bảo lấy proxy mới đúng theo tiêu chí ISP/Location
-        currentProxy = null;
+        // LOGIC FIX: Không xóa currentProxy = null ở đây nữa.
+        // Hãy để getProxyXoay tự quyết định xem có cần lấy mới không.
+        // Nếu đang bị cooldown, getProxyXoay sẽ trả về proxy cũ -> Check vẫn OK.
         
         // 1. Lấy IP gốc của người dùng
         let myIp = "Unknown";

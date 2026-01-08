@@ -99,6 +99,7 @@ const App: React.FC = () => {
   const [proxyKey, setProxyKey] = useState<string>('');
   const [proxyISP, setProxyISP] = useState<string>('Random');
   const [proxyLocation, setProxyLocation] = useState<string>('0');
+  const [isProxyEnabled, setIsProxyEnabled] = useState<boolean>(false);
 
   // ElevenLabs Advanced Settings
   const [elevenLabsSettings, setElevenLabsSettings] = useState<ElevenLabsSettings>({
@@ -159,11 +160,13 @@ const App: React.FC = () => {
       const savedProxyKey = localStorage.getItem('proxyKey');
       const savedProxyISP = localStorage.getItem('proxyISP');
       const savedProxyLocation = localStorage.getItem('proxyLocation');
+      const savedIsProxyEnabled = localStorage.getItem('isProxyEnabled');
 
       if (savedElevenLabsKey) setElevenLabsApiKey(savedElevenLabsKey);
       if (savedProxyKey) setProxyKey(savedProxyKey);
       if (savedProxyISP) setProxyISP(savedProxyISP);
       if (savedProxyLocation) setProxyLocation(savedProxyLocation);
+      if (savedIsProxyEnabled !== null) setIsProxyEnabled(savedIsProxyEnabled === 'true');
     } catch (error) {
       console.error(error);
     }
@@ -284,13 +287,15 @@ const App: React.FC = () => {
       localStorage.setItem('geminiApiKey', key);
   }
 
-  const saveProxyConfig = (key: string, isp: string, location: string) => {
+  const saveProxyConfig = (key: string, isp: string, location: string, enabled: boolean) => {
       setProxyKey(key);
       setProxyISP(isp);
       setProxyLocation(location);
+      setIsProxyEnabled(enabled);
       localStorage.setItem('proxyKey', key);
       localStorage.setItem('proxyISP', isp);
       localStorage.setItem('proxyLocation', location);
+      localStorage.setItem('isProxyEnabled', String(enabled));
   }
 
   const handleFileSelect = useCallback((content: string, fileName: string) => {
@@ -380,6 +385,9 @@ const App: React.FC = () => {
            // Randomly select a key for preview
            const randomKey = keys[Math.floor(Math.random() * keys.length)];
            
+           // Only pass proxyKey if enabled
+           const effectiveProxyKey = isProxyEnabled ? proxyKey : undefined;
+
            // Pass undefined for baseUrl so it uses default or Proxy relay internally
            const bytes = await generateElevenLabsSpeechBytes(
                sampleText, 
@@ -390,7 +398,7 @@ const App: React.FC = () => {
                undefined, 
                elevenLabsSettings, 
                speechSpeed, 
-               proxyKey,
+               effectiveProxyKey,
                proxyISP,
                proxyLocation
             );
@@ -460,6 +468,9 @@ const App: React.FC = () => {
       // Randomize start index for key usage to distribute load
       let elevenLabsKeyIdx = Math.floor(Math.random() * elevenLabsKeys.length);
 
+      // Only pass proxyKey if enabled
+      const effectiveProxyKey = isProxyEnabled ? proxyKey : undefined;
+
       if (fileType === 'srt') {
           const subtitles = parseSrt(fileContent);
           if (subtitles.length === 0) {
@@ -501,7 +512,7 @@ const App: React.FC = () => {
                             undefined, 
                             elevenLabsSettings, 
                             speechSpeed, 
-                            proxyKey,
+                            effectiveProxyKey,
                             proxyISP,
                             proxyLocation
                         );
@@ -573,7 +584,7 @@ const App: React.FC = () => {
                             undefined, 
                             elevenLabsSettings, 
                             speechSpeed, 
-                            proxyKey,
+                            effectiveProxyKey,
                             proxyISP,
                             proxyLocation
                         );
@@ -634,6 +645,9 @@ const App: React.FC = () => {
              // For regeneration, we just pick a random key to distribute load
              if (elevenLabsKeys.length === 0) throw new Error("No ElevenLabs keys");
              
+             // Only pass proxyKey if enabled
+             const effectiveProxyKey = isProxyEnabled ? proxyKey : undefined;
+
              let success = false;
              let attempts = 0;
              // Simple retry logic up to 3 times with different keys
@@ -650,7 +664,7 @@ const App: React.FC = () => {
                         undefined, 
                         elevenLabsSettings, 
                         speechSpeed, 
-                        proxyKey,
+                        effectiveProxyKey,
                         proxyISP,
                         proxyLocation
                     );
@@ -1267,6 +1281,7 @@ const App: React.FC = () => {
         proxyISP={proxyISP}
         proxyLocation={proxyLocation}
         onProxyConfigChange={saveProxyConfig}
+        isProxyEnabled={isProxyEnabled}
       />
     </div>
   );

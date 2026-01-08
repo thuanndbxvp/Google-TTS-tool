@@ -465,6 +465,10 @@ const App: React.FC = () => {
     const instruction = getInstruction();
 
     try {
+      // BAD KEYS REGISTRY:
+      // Track keys that fail specifically with Quota/Auth errors so we don't try them again in this session
+      const badKeys = new Set<number>();
+      
       // Randomize start index for key usage to distribute load
       let elevenLabsKeyIdx = Math.floor(Math.random() * elevenLabsKeys.length);
 
@@ -500,7 +504,19 @@ const App: React.FC = () => {
             } else {
                  let attempts = 0;
                  let success = false;
+                 
+                 // Skip known bad keys at start of attempt
+                 while(badKeys.has(elevenLabsKeyIdx) && badKeys.size < elevenLabsKeys.length) {
+                     elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
+                 }
+
                  while (!success && attempts < elevenLabsKeys.length) {
+                    if (badKeys.size >= elevenLabsKeys.length) throw new Error("Tất cả API Key ElevenLabs đều bị lỗi hoặc hết hạn mức.");
+                    if (badKeys.has(elevenLabsKeyIdx)) {
+                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
+                         continue;
+                    }
+
                     const keyToUse = elevenLabsKeys[elevenLabsKeyIdx];
                     try {
                         speechBytes = await generateElevenLabsSpeechBytes(
@@ -520,20 +536,18 @@ const App: React.FC = () => {
                         // On success, move to next key for next paragraph (Round Robin)
                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
                     } catch (err) {
-                         console.warn(`Key ${elevenLabsKeyIdx} failed:`, err);
+                         console.warn(`Key index ${elevenLabsKeyIdx} failed:`, err);
+                         // Mark this key as bad so we skip it next time
+                         badKeys.add(elevenLabsKeyIdx);
                          attempts++;
-                         // On failure, try next key immediately
+                         // Try next key immediately
                          elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
-                         
-                         if (attempts >= elevenLabsKeys.length) throw err;
                     }
                  }
+                 if (!success) throw new Error(`Không thể tạo audio cho đoạn ${i+1}. Vui lòng kiểm tra lại Key.`);
             }
 
-            // CRITICAL CHECK: Ensure audio data is valid
-            if (!speechBytes || speechBytes.length === 0) {
-               console.warn("Segment generated empty bytes", sub.id);
-            } else {
+            if (speechBytes && speechBytes.length > 0) {
                audioChunks.push(speechBytes);
                const speechDuration = getPcmDuration(speechBytes);
                currentTime = sub.startTime + speechDuration;
@@ -572,7 +586,20 @@ const App: React.FC = () => {
             } else {
                  let attempts = 0;
                  let success = false;
+                 
+                 // Fast forward past bad keys
+                 while(badKeys.has(elevenLabsKeyIdx) && badKeys.size < elevenLabsKeys.length) {
+                     elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
+                 }
+
                  while (!success && attempts < elevenLabsKeys.length) {
+                     if (badKeys.size >= elevenLabsKeys.length) throw new Error("Tất cả API Key ElevenLabs đều bị lỗi hoặc hết hạn mức.");
+                     // Skip bad key
+                     if (badKeys.has(elevenLabsKeyIdx)) {
+                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
+                         continue;
+                     }
+
                     const keyToUse = elevenLabsKeys[elevenLabsKeyIdx];
                     try {
                         speechBytes = await generateElevenLabsSpeechBytes(
@@ -595,14 +622,15 @@ const App: React.FC = () => {
                         }
                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
                     } catch (err) {
-                        console.warn(`Key ${elevenLabsKeyIdx} failed:`, err);
+                        console.warn(`Key index ${elevenLabsKeyIdx} failed. Switching...`, err);
+                        badKeys.add(elevenLabsKeyIdx); // Mark bad
                         attempts++;
                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
-                        if (attempts >= elevenLabsKeys.length) throw err;
                     }
                  }
+                 if (!success) throw new Error("Hết tất cả các API Key khả dụng. Vui lòng thêm Key mới.");
+
                  const blob = createWavBlob(speechBytes);
-                 // Check if blob is just header (44 bytes)
                  if (blob.size <= 44) throw new Error("Generated audio is empty/silent");
                  audioUrl = URL.createObjectURL(blob);
             }
@@ -642,19 +670,23 @@ const App: React.FC = () => {
         if (ttsProvider === 'gemini') {
             audioUrl = await generateSpeech(textToRead, selectedGeminiVoice, geminiApiKey, speechSpeed);
         } else {
-             // For regeneration, we just pick a random key to distribute load
              if (elevenLabsKeys.length === 0) throw new Error("No ElevenLabs keys");
              
              // Only pass proxyKey if enabled
              const effectiveProxyKey = isProxyEnabled ? proxyKey : undefined;
 
              let success = false;
+             
+             // Try ALL keys sequentially starting from a random index
+             const startIdx = Math.floor(Math.random() * elevenLabsKeys.length);
              let attempts = 0;
-             // Simple retry logic up to 3 times with different keys
-             while(!success && attempts < Math.min(3, elevenLabsKeys.length)) {
-                const randomKeyIdx = Math.floor(Math.random() * elevenLabsKeys.length);
-                const keyToUse = elevenLabsKeys[randomKeyIdx];
+             
+             while(!success && attempts < elevenLabsKeys.length) {
+                const currentIdx = (startIdx + attempts) % elevenLabsKeys.length;
+                const keyToUse = elevenLabsKeys[currentIdx];
+                
                 try {
+                    console.log(`Regenerating with Key index: ${currentIdx}`);
                     speechBytes = await generateElevenLabsSpeechBytes(
                         text, 
                         selectedElevenLabsVoice, 
@@ -674,11 +706,12 @@ const App: React.FC = () => {
                         throw new Error("Empty bytes");
                     }
                 } catch(e) {
+                    console.warn(`Key ${currentIdx} failed regeneration:`, e);
                     attempts++;
                 }
              }
              
-             if (!success || speechBytes.length === 0) throw new Error("Failed to regenerate audio");
+             if (!success || speechBytes.length === 0) throw new Error("Đã thử tất cả các Key nhưng đều thất bại.");
              
              const blob = createWavBlob(speechBytes);
              if (blob.size <= 44) throw new Error("Generated audio is empty");

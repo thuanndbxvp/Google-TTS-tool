@@ -15,53 +15,8 @@ interface ApiKeyModalProps {
   onGeminiConfigChange?: (key: string) => void;
   // Proxy props
   proxyKey?: string;
-  proxyISP?: string;
-  proxyLocation?: string;
-  isProxyEnabled?: boolean;
-  onProxyConfigChange?: (key: string, isp: string, location: string, enabled: boolean) => void;
+  onProxyKeyChange?: (key: string) => void;
 }
-
-const PROXY_ISPS = [
-    { id: 'Random', name: 'Random (Ngẫu nhiên)' },
-    { id: 'viettel', name: 'Viettel' },
-    { id: 'fpt', name: 'FPT' },
-    { id: 'vnpt', name: 'VNPT' },
-];
-
-const PROXY_LOCATIONS = [
-    { id: '0', name: '0. Random' },
-    { id: '1', name: '1. Phú Thọ' },
-    { id: '2', name: '2. Tuyên Quang' },
-    { id: '3', name: '3. Hà Nội' },
-    { id: '4', name: '4. Hải Dương' },
-    { id: '5', name: '5. Bắc Giang' },
-    { id: '6', name: '6. Hồ Chí Minh' },
-    { id: '7', name: '7. Tây Ninh' },
-    { id: '8', name: '8. Đồng Nai' },
-    { id: '9', name: '9. Vũng Tàu' },
-    { id: '10', name: '10. Bình Dương' },
-    { id: '11', name: '11. Nghệ An' },
-    { id: '12', name: '12. Hà Tĩnh' },
-    { id: '13', name: '13. Quảng Bình' },
-    { id: '14', name: '14. Quảng Trị' },
-    { id: '15', name: '15. Huế' },
-    { id: '16', name: '16. Đà Nẵng' },
-    { id: '17', name: '17. Vĩnh Phúc' },
-    { id: '18', name: '18. Yên Bái' },
-    { id: '19', name: '19. Lào Cai' },
-    { id: '20', name: '20. Lạng Sơn' },
-    { id: '21', name: '21. Thái Nguyên' },
-    { id: '22', name: '22. Hà Nam' },
-    { id: '23', name: '23. Nam Định' },
-    { id: '24', name: '24. Thái Bình' },
-    { id: '25', name: '25. Hải Phòng' },
-    { id: '26', name: '26. Quảng Ninh' },
-    { id: '27', name: '27. Cà Mau' },
-    { id: '28', name: '28. Kiên Giang' },
-    { id: '29', name: '29. Bạc Liêu' },
-    { id: '30', name: '30. Sóc Trăng' },
-    { id: '31', name: '31. Hậu Giang' },
-];
 
 export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
   isOpen,
@@ -71,10 +26,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
   geminiApiKey = '',
   onGeminiConfigChange,
   proxyKey = '',
-  proxyISP = 'Random',
-  proxyLocation = '0',
-  isProxyEnabled = false,
-  onProxyConfigChange
+  onProxyKeyChange
 }) => {
   // ElevenLabs local state
   const [elevenLabsKeysInput, setElevenLabsKeysInput] = useState(elevenLabsApiKey);
@@ -86,10 +38,6 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
 
   // Proxy local state
   const [proxyKeyInput, setProxyKeyInput] = useState(proxyKey);
-  const [proxyISPInput, setProxyISPInput] = useState(proxyISP);
-  const [proxyLocationInput, setProxyLocationInput] = useState(proxyLocation);
-  const [isProxyEnabledInput, setIsProxyEnabledInput] = useState(isProxyEnabled);
-
   const [isEditingProxy, setIsEditingProxy] = useState(false);
   const [isCheckingProxy, setIsCheckingProxy] = useState(false);
   const [checkResult, setCheckResult] = useState<{myIp: string, proxyIp: string, success: boolean, message: string} | null>(null);
@@ -98,11 +46,8 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
     setElevenLabsKeysInput(elevenLabsApiKey);
     setGeminiKeyInput(geminiApiKey);
     setProxyKeyInput(proxyKey);
-    setProxyISPInput(proxyISP);
-    setProxyLocationInput(proxyLocation);
-    setIsProxyEnabledInput(isProxyEnabled);
     setCheckResult(null); // Reset check result when modal opens
-  }, [elevenLabsApiKey, geminiApiKey, proxyKey, proxyISP, proxyLocation, isProxyEnabled, isOpen]);
+  }, [elevenLabsApiKey, geminiApiKey, proxyKey, isOpen]);
 
   if (!isOpen) {
     return null;
@@ -121,18 +66,10 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
   }
 
   const handleSaveProxy = () => {
-      if (onProxyConfigChange) {
-          onProxyConfigChange(proxyKeyInput.trim(), proxyISPInput, proxyLocationInput, isProxyEnabledInput);
+      if (onProxyKeyChange) {
+          onProxyKeyChange(proxyKeyInput.trim());
           setIsEditingProxy(false);
           setCheckResult(null); // Reset result on save
-      }
-  }
-
-  const handleProxyToggle = (checked: boolean) => {
-      setIsProxyEnabledInput(checked);
-      // Auto save on toggle if we are not in editing mode, to make it feel instant if key already exists
-      if (!isEditingProxy && proxyKeyInput && onProxyConfigChange) {
-         onProxyConfigChange(proxyKeyInput.trim(), proxyISPInput, proxyLocationInput, checked);
       }
   }
 
@@ -152,13 +89,8 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
       setIsCheckingProxy(true);
       setCheckResult(null);
 
-      // Use the first key for verification, passing ISP and Location
-      const result = await verifyProxyConnection(
-          proxyKeyInput.trim(), 
-          keys[0].trim(),
-          proxyISPInput,
-          proxyLocationInput
-      );
+      // Use the first key for verification
+      const result = await verifyProxyConnection(proxyKeyInput.trim(), keys[0].trim());
       
       setCheckResult(result);
       setIsCheckingProxy(false);
@@ -246,162 +178,96 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
 
              {/* Proxy Xoay Section */}
              <div className="mb-4 pt-6 border-t border-slate-600">
-               <div className="flex items-center justify-between mb-2">
-                 <h3 className="text-lg font-semibold text-white flex items-center">
+               <h3 className="text-lg font-semibold text-white mb-2 flex items-center justify-between">
+                 <div className="flex items-center">
                     <span className="bg-gradient-to-r from-green-400 to-teal-500 bg-clip-text text-transparent mr-2">Proxy Xoay</span>
-                 </h3>
-                  <div className="flex items-center">
-                    <label htmlFor="proxyToggle" className="text-xs text-slate-300 mr-2 cursor-pointer select-none">
-                        {isProxyEnabledInput ? 'Đang bật' : 'Đang tắt'}
-                    </label>
-                    <div className="relative inline-block w-10 mr-2 align-middle select-none transition duration-200 ease-in">
-                        <input 
-                            type="checkbox" 
-                            name="proxyToggle" 
-                            id="proxyToggle" 
-                            checked={isProxyEnabledInput}
-                            onChange={(e) => handleProxyToggle(e.target.checked)}
-                            className="toggle-checkbox absolute block w-5 h-5 rounded-full bg-white border-4 appearance-none cursor-pointer transition-transform duration-200 ease-in-out transform checked:translate-x-full checked:border-[--color-primary-500]"
-                            style={isProxyEnabledInput ? { right: 0, borderColor: 'var(--color-primary-500)' } : { left: 0, borderColor: '#cbd5e1' }}
-                        />
-                        <label 
-                            htmlFor="proxyToggle" 
-                            className={`toggle-label block overflow-hidden h-5 rounded-full cursor-pointer transition-colors duration-200 ${isProxyEnabledInput ? 'bg-[--color-primary-500]' : 'bg-slate-600'}`}
-                        ></label>
-                    </div>
                  </div>
-              </div>
-              
+                 {!isEditingProxy && proxyKey && (
+                    <span className="text-xs bg-slate-700 text-slate-300 px-2 py-1 rounded-full border border-slate-600">
+                        Đã kích hoạt
+                    </span>
+                 )}
+              </h3>
               <p className="text-slate-400 text-xs mb-4">
-                Sử dụng Key từ <a href="https://proxy.vn/?home=proxyxoay" target="_blank" rel="noreferrer" className="text-[--color-primary-400] hover:underline">proxyxoay.shop</a>. Nếu tắt, sẽ dùng mạng trực tiếp (Direct IP).
+                Sử dụng Key từ proxyxoay.shop. Khi kích hoạt, tool sẽ tự động kết nối qua server trung gian.
               </p>
 
-               {/* Only show configuration if proxy is enabled */}
-               {isProxyEnabledInput && (
-                   <>
-                    {!isEditingProxy && proxyKey ? (
-                        <div className="space-y-3">
-                            <div className="bg-slate-700/50 p-3 rounded-lg border border-slate-600">
-                                <div className="flex items-center justify-between">
-                                    <div className="flex items-center">
-                                        <KeyIcon />
-                                        <div className="ml-3">
-                                            <div className="font-mono text-slate-300 text-sm">
-                                                {proxyKey.substring(0, 4)}...{proxyKey.substring(proxyKey.length - 4)}
-                                            </div>
-                                            <div className="text-[10px] text-slate-500 mt-0.5">
-                                                {proxyISPInput} - {PROXY_LOCATIONS.find(l => l.id === proxyLocationInput)?.name || proxyLocationInput}
-                                            </div>
+               {!isEditingProxy && proxyKey ? (
+                <div className="space-y-3">
+                    <div className="bg-slate-700/50 p-3 rounded-lg border border-slate-600">
+                    <div className="flex items-center justify-between">
+                        <div className="flex items-center">
+                            <KeyIcon />
+                            <span className="ml-3 font-mono text-slate-300 text-sm">
+                                {proxyKey.substring(0, 4)}...{proxyKey.substring(proxyKey.length - 4)}
+                            </span>
+                        </div>
+                        <button onClick={() => setIsEditingProxy(true)} className="text-[--color-primary-400] hover:text-[--color-primary-300] text-sm font-semibold transition-colors">
+                            Cấu hình
+                        </button>
+                    </div>
+                    </div>
+                    
+                    {/* Check Proxy Area for saved key */}
+                    <div className="border border-slate-700 rounded-lg p-3 bg-slate-900/30">
+                        <div className="flex justify-between items-center mb-2">
+                             <span className="text-xs font-medium text-slate-400">Trạng thái Proxy</span>
+                             <button 
+                                onClick={() => { setProxyKeyInput(proxyKey); handleCheckProxy(); }}
+                                disabled={isCheckingProxy}
+                                className="text-xs bg-slate-600 hover:bg-slate-500 text-white px-2 py-1 rounded flex items-center"
+                             >
+                                 {isCheckingProxy && <SpinnerIcon hasMargin={false} />}
+                                 <span className={isCheckingProxy ? "ml-1" : ""}>{isCheckingProxy ? "Đang ktra..." : "Kiểm tra IP"}</span>
+                             </button>
+                        </div>
+                        {checkResult && (
+                            <div className={`text-xs p-2 rounded ${checkResult.success ? 'bg-green-500/10 text-green-300 border border-green-500/30' : 'bg-red-500/10 text-red-300 border border-red-500/30'}`}>
+                                <div className="font-bold mb-1">{checkResult.message}</div>
+                                {checkResult.success && (
+                                    <div className="grid grid-cols-2 gap-2 mt-2 font-mono text-[10px]">
+                                        <div>
+                                            <span className="block text-slate-500">IP Máy (Gốc)</span>
+                                            <span className="text-slate-300">{checkResult.myIp}</span>
+                                        </div>
+                                        <div>
+                                            <span className="block text-slate-500">IP Proxy (Truy cập 11Lab)</span>
+                                            <span className="text-[--color-primary-300]">{checkResult.proxyIp}</span>
                                         </div>
                                     </div>
-                                    <button onClick={() => setIsEditingProxy(true)} className="text-[--color-primary-400] hover:text-[--color-primary-300] text-sm font-semibold transition-colors">
-                                        Cấu hình
-                                    </button>
-                                </div>
-                            </div>
-                            
-                            {/* Check Proxy Area for saved key */}
-                            <div className="border border-slate-700 rounded-lg p-3 bg-slate-900/30">
-                                <div className="flex justify-between items-center mb-2">
-                                    <span className="text-xs font-medium text-slate-400">Trạng thái Proxy</span>
-                                    <button 
-                                        onClick={() => { 
-                                            setProxyKeyInput(proxyKey); 
-                                            setProxyISPInput(proxyISP);
-                                            setProxyLocationInput(proxyLocation);
-                                            handleCheckProxy(); 
-                                        }}
-                                        disabled={isCheckingProxy}
-                                        className="text-xs bg-slate-600 hover:bg-slate-500 text-white px-2 py-1 rounded flex items-center"
-                                    >
-                                        {isCheckingProxy && <SpinnerIcon hasMargin={false} />}
-                                        <span className={isCheckingProxy ? "ml-1" : ""}>{isCheckingProxy ? "Đang ktra..." : "Kiểm tra IP"}</span>
-                                    </button>
-                                </div>
-                                {checkResult && (
-                                    <div className={`text-xs p-2 rounded ${checkResult.success ? 'bg-green-500/10 text-green-300 border border-green-500/30' : 'bg-red-500/10 text-red-300 border border-red-500/30'}`}>
-                                        <div className="font-bold mb-1">{checkResult.message}</div>
-                                        {checkResult.success && (
-                                            <div className="grid grid-cols-2 gap-2 mt-2 font-mono text-[10px]">
-                                                <div>
-                                                    <span className="block text-slate-500">IP Máy (Gốc)</span>
-                                                    <span className="text-slate-300">{checkResult.myIp}</span>
-                                                </div>
-                                                <div>
-                                                    <span className="block text-slate-500">IP Proxy (Truy cập 11Lab)</span>
-                                                    <span className="text-[--color-primary-300]">{checkResult.proxyIp}</span>
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
                                 )}
                             </div>
-                        </div>
-                    ) : (
-                        <div className="space-y-3 animate-fade-in">
-                            <div>
-                                <label className="block text-xs font-medium text-slate-400 mb-1">Key Xoay (proxy.vn)</label>
-                                <input
-                                    type="text"
-                                    value={proxyKeyInput}
-                                    onChange={(e) => setProxyKeyInput(e.target.value)}
-                                    className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-300 text-sm font-mono hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors"
-                                    placeholder="Nhập key xoay..."
-                                />
-                            </div>
-                            
-                            <div className="grid grid-cols-2 gap-3">
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-400 mb-1">Nhà mạng</label>
-                                    <select
-                                        value={proxyISPInput}
-                                        onChange={(e) => setProxyISPInput(e.target.value)}
-                                        className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-300 text-xs hover:border-[--color-primary-500]/70"
-                                    >
-                                        {PROXY_ISPS.map(isp => (
-                                            <option key={isp.id} value={isp.id}>{isp.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-medium text-slate-400 mb-1">Tỉnh thành</label>
-                                    <select
-                                        value={proxyLocationInput}
-                                        onChange={(e) => setProxyLocationInput(e.target.value)}
-                                        className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-300 text-xs hover:border-[--color-primary-500]/70"
-                                    >
-                                        {PROXY_LOCATIONS.map(loc => (
-                                            <option key={loc.id} value={loc.id}>{loc.name}</option>
-                                        ))}
-                                    </select>
-                                </div>
-                            </div>
-
-                            <p className="text-[10px] text-slate-500 mt-1">
-                                Hệ thống sẽ tự động kết nối qua server trung gian để bảo mật.
-                            </p>
-
-                            <div className="flex space-x-2 justify-end">
-                                {isEditingProxy && (
-                                    <button onClick={() => { 
-                                        setIsEditingProxy(false); 
-                                        setProxyKeyInput(proxyKey); 
-                                        setProxyISPInput(proxyISP);
-                                        setProxyLocationInput(proxyLocation);
-                                        setCheckResult(null); 
-                                    }} className="text-slate-400 hover:text-white px-3 py-2 text-sm">
-                                    Hủy
-                                    </button>
-                                )}
-                                {/* Button Save handles logic */}
-                                <button onClick={handleSaveProxy} className="bg-[--color-primary-600] hover:bg-[--color-primary-500] text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm">
-                                    Lưu Key Proxy
-                                </button>
-                            </div>
-                        </div>
-                    )}
-                   </>
-               )}
+                        )}
+                    </div>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                   <div>
+                        <label className="block text-xs font-medium text-slate-400 mb-1">Key Xoay (proxyxoay.shop)</label>
+                        <input
+                            type="text"
+                            value={proxyKeyInput}
+                            onChange={(e) => setProxyKeyInput(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-600 rounded-lg p-2.5 text-slate-300 text-sm font-mono hover:border-[--color-primary-500]/70 focus:ring-2 focus:ring-[--color-primary-500] focus:border-[--color-primary-500] transition-colors"
+                            placeholder="Nhập key xoay..."
+                        />
+                         <p className="text-[10px] text-slate-500 mt-1">
+                             Hệ thống sẽ tự động kết nối qua server trung gian để bảo mật.
+                         </p>
+                    </div>
+                    <div className="flex space-x-2 justify-end">
+                         {isEditingProxy && (
+                            <button onClick={() => { setIsEditingProxy(false); setProxyKeyInput(proxyKey); setCheckResult(null); }} className="text-slate-400 hover:text-white px-3 py-2 text-sm">
+                               Hủy
+                            </button>
+                         )}
+                         {/* Button Save handles logic */}
+                        <button onClick={handleSaveProxy} className="bg-[--color-primary-600] hover:bg-[--color-primary-500] text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm">
+                            Lưu Key Proxy
+                        </button>
+                    </div>
+                </div>
+              )}
             </div>
             
             {/* Gemini Section */}
@@ -473,13 +339,6 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
         @keyframes fade-in-scale {
             from { transform: scale(0.95); opacity: 0; }
             to { transform: scale(1); opacity: 1; }
-        }
-        @keyframes fade-in {
-             from { opacity: 0; transform: translateY(-5px); }
-             to { opacity: 1; transform: translateY(0); }
-        }
-        .animate-fade-in {
-            animation: fade-in 0.2s ease-out forwards;
         }
         .custom-scrollbar::-webkit-scrollbar { width: 6px; }
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }

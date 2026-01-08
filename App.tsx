@@ -1,4 +1,3 @@
-
 import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 // Remove JSZip import as we are moving to direct downloads
 // import JSZip from 'jszip'; 
@@ -97,9 +96,6 @@ const App: React.FC = () => {
   
   // Proxy Xoay State
   const [proxyKey, setProxyKey] = useState<string>('');
-  const [proxyISP, setProxyISP] = useState<string>('Random');
-  const [proxyLocation, setProxyLocation] = useState<string>('0');
-  const [isProxyEnabled, setIsProxyEnabled] = useState<boolean>(false);
 
   // ElevenLabs Advanced Settings
   const [elevenLabsSettings, setElevenLabsSettings] = useState<ElevenLabsSettings>({
@@ -158,15 +154,9 @@ const App: React.FC = () => {
     try {
       const savedElevenLabsKey = localStorage.getItem('elevenLabsApiKey');
       const savedProxyKey = localStorage.getItem('proxyKey');
-      const savedProxyISP = localStorage.getItem('proxyISP');
-      const savedProxyLocation = localStorage.getItem('proxyLocation');
-      const savedIsProxyEnabled = localStorage.getItem('isProxyEnabled');
 
       if (savedElevenLabsKey) setElevenLabsApiKey(savedElevenLabsKey);
       if (savedProxyKey) setProxyKey(savedProxyKey);
-      if (savedProxyISP) setProxyISP(savedProxyISP);
-      if (savedProxyLocation) setProxyLocation(savedProxyLocation);
-      if (savedIsProxyEnabled !== null) setIsProxyEnabled(savedIsProxyEnabled === 'true');
     } catch (error) {
       console.error(error);
     }
@@ -287,15 +277,9 @@ const App: React.FC = () => {
       localStorage.setItem('geminiApiKey', key);
   }
 
-  const saveProxyConfig = (key: string, isp: string, location: string, enabled: boolean) => {
+  const saveProxyConfig = (key: string) => {
       setProxyKey(key);
-      setProxyISP(isp);
-      setProxyLocation(location);
-      setIsProxyEnabled(enabled);
       localStorage.setItem('proxyKey', key);
-      localStorage.setItem('proxyISP', isp);
-      localStorage.setItem('proxyLocation', location);
-      localStorage.setItem('isProxyEnabled', String(enabled));
   }
 
   const handleFileSelect = useCallback((content: string, fileName: string) => {
@@ -385,23 +369,8 @@ const App: React.FC = () => {
            // Randomly select a key for preview
            const randomKey = keys[Math.floor(Math.random() * keys.length)];
            
-           // Only pass proxyKey if enabled
-           const effectiveProxyKey = isProxyEnabled ? proxyKey : undefined;
-
            // Pass undefined for baseUrl so it uses default or Proxy relay internally
-           const bytes = await generateElevenLabsSpeechBytes(
-               sampleText, 
-               selectedElevenLabsVoice, 
-               selectedElevenLabsModel, 
-               randomKey, 
-               langCode, 
-               undefined, 
-               elevenLabsSettings, 
-               speechSpeed, 
-               effectiveProxyKey,
-               proxyISP,
-               proxyLocation
-            );
+           const bytes = await generateElevenLabsSpeechBytes(sampleText, selectedElevenLabsVoice, selectedElevenLabsModel, randomKey, langCode, undefined, elevenLabsSettings, speechSpeed, proxyKey);
            const blob = createWavBlob(bytes);
            audioUrl = URL.createObjectURL(blob);
       }
@@ -465,15 +434,8 @@ const App: React.FC = () => {
     const instruction = getInstruction();
 
     try {
-      // BAD KEYS REGISTRY:
-      // Track keys that fail specifically with Quota/Auth errors so we don't try them again in this session
-      const badKeys = new Set<number>();
-      
       // Randomize start index for key usage to distribute load
       let elevenLabsKeyIdx = Math.floor(Math.random() * elevenLabsKeys.length);
-
-      // Only pass proxyKey if enabled
-      const effectiveProxyKey = isProxyEnabled ? proxyKey : undefined;
 
       if (fileType === 'srt') {
           const subtitles = parseSrt(fileContent);
@@ -504,70 +466,28 @@ const App: React.FC = () => {
             } else {
                  let attempts = 0;
                  let success = false;
-                 let lastError: Error | null = null;
-                 
-                 // Skip known bad keys at start of attempt
-                 while(badKeys.has(elevenLabsKeyIdx) && badKeys.size < elevenLabsKeys.length) {
-                     elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
-                 }
-
                  while (!success && attempts < elevenLabsKeys.length) {
-                    if (badKeys.size >= elevenLabsKeys.length) throw new Error("Tất cả API Key ElevenLabs đều bị lỗi hoặc hết hạn mức.");
-                    if (badKeys.has(elevenLabsKeyIdx)) {
-                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
-                         continue;
-                    }
-
                     const keyToUse = elevenLabsKeys[elevenLabsKeyIdx];
                     try {
-                        speechBytes = await generateElevenLabsSpeechBytes(
-                            sub.text, 
-                            selectedElevenLabsVoice, 
-                            selectedElevenLabsModel, 
-                            keyToUse, 
-                            langCode, 
-                            undefined, 
-                            elevenLabsSettings, 
-                            speechSpeed, 
-                            effectiveProxyKey,
-                            proxyISP,
-                            proxyLocation
-                        );
+                        speechBytes = await generateElevenLabsSpeechBytes(sub.text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, undefined, elevenLabsSettings, speechSpeed, proxyKey);
                         success = true;
                         // On success, move to next key for next paragraph (Round Robin)
                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
-                    } catch (err: any) {
-                         console.warn(`Key index ${elevenLabsKeyIdx} failed:`, err);
-                         lastError = err;
-                         const msg = err.message ? err.message.toLowerCase() : "";
-                         
-                         // CRITICAL FIX: Only mark key as bad if it's explicitly an account/quota error
-                         // Do NOT mark bad if it's a Proxy or Network error
-                         const isKeyError = msg.includes("quota") || msg.includes("unauthorized") || msg.includes("invalid") || msg.includes("custom voices") || msg.includes("tier");
-                         
-                         if (isKeyError) {
-                             badKeys.add(elevenLabsKeyIdx);
-                         } else {
-                             // Proxy/Network error: Keep key, but maybe wait a bit or just try next key/proxy loop
-                             console.log("Non-key error (Proxy/Network), keeping key in rotation.");
-                         }
-                         
+                    } catch (err) {
+                         console.warn(`Key ${elevenLabsKeyIdx} failed:`, err);
                          attempts++;
-                         // Try next key immediately (Round Robin)
+                         // On failure, try next key immediately
                          elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
+                         
+                         if (attempts >= elevenLabsKeys.length) throw err;
                     }
-                 }
-                 if (!success) {
-                      if (badKeys.size >= elevenLabsKeys.length) {
-                          throw new Error("Hết tất cả các API Key khả dụng (Quota/Auth). Vui lòng thêm Key mới.");
-                      } else {
-                          // Failed but keys are theoretically okay -> Network/Proxy error
-                          throw new Error(`Lỗi kết nối/Proxy (Đã thử hết vòng): ${lastError?.message || 'Unknown'}`);
-                      }
                  }
             }
 
-            if (speechBytes && speechBytes.length > 0) {
+            // CRITICAL CHECK: Ensure audio data is valid
+            if (!speechBytes || speechBytes.length === 0) {
+               console.warn("Segment generated empty bytes", sub.id);
+            } else {
                audioChunks.push(speechBytes);
                const speechDuration = getPcmDuration(speechBytes);
                currentTime = sub.startTime + speechDuration;
@@ -606,69 +526,25 @@ const App: React.FC = () => {
             } else {
                  let attempts = 0;
                  let success = false;
-                 let lastError: Error | null = null;
-                 
-                 // Fast forward past bad keys
-                 while(badKeys.has(elevenLabsKeyIdx) && badKeys.size < elevenLabsKeys.length) {
-                     elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
-                 }
-
                  while (!success && attempts < elevenLabsKeys.length) {
-                     if (badKeys.size >= elevenLabsKeys.length) throw new Error("Tất cả API Key ElevenLabs đều bị lỗi hoặc hết hạn mức.");
-                     // Skip bad key
-                     if (badKeys.has(elevenLabsKeyIdx)) {
-                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
-                         continue;
-                     }
-
                     const keyToUse = elevenLabsKeys[elevenLabsKeyIdx];
                     try {
-                        speechBytes = await generateElevenLabsSpeechBytes(
-                            p, 
-                            selectedElevenLabsVoice, 
-                            selectedElevenLabsModel, 
-                            keyToUse, 
-                            langCode, 
-                            undefined, 
-                            elevenLabsSettings, 
-                            speechSpeed, 
-                            effectiveProxyKey,
-                            proxyISP,
-                            proxyLocation
-                        );
+                        speechBytes = await generateElevenLabsSpeechBytes(p, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, undefined, elevenLabsSettings, speechSpeed, proxyKey);
                         if (speechBytes && speechBytes.length > 0) {
                             success = true;
                         } else {
                             throw new Error("Empty audio bytes returned");
                         }
                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
-                    } catch (err: any) {
-                        console.warn(`Key index ${elevenLabsKeyIdx} failed. Switching...`, err);
-                        lastError = err;
-                        const msg = err.message ? err.message.toLowerCase() : "";
-
-                        // CRITICAL FIX: Only mark key as bad if it's explicitly an account/quota error
-                        const isKeyError = msg.includes("quota") || msg.includes("unauthorized") || msg.includes("invalid") || msg.includes("custom voices") || msg.includes("tier");
-
-                        if (isKeyError) {
-                            badKeys.add(elevenLabsKeyIdx);
-                        } else {
-                            console.log("Non-key error (Proxy/Network), keeping key in rotation.");
-                        }
-
+                    } catch (err) {
+                        console.warn(`Key ${elevenLabsKeyIdx} failed:`, err);
                         attempts++;
                         elevenLabsKeyIdx = (elevenLabsKeyIdx + 1) % elevenLabsKeys.length;
+                        if (attempts >= elevenLabsKeys.length) throw err;
                     }
                  }
-                 if (!success) {
-                     if (badKeys.size >= elevenLabsKeys.length) {
-                         throw new Error("Hết tất cả các API Key khả dụng (Quota/Auth). Vui lòng thêm Key mới.");
-                     } else {
-                         throw new Error(`Lỗi kết nối/Proxy (Đã thử hết vòng): ${lastError?.message || 'Unknown'}`);
-                     }
-                 }
-
                  const blob = createWavBlob(speechBytes);
+                 // Check if blob is just header (44 bytes)
                  if (blob.size <= 44) throw new Error("Generated audio is empty/silent");
                  audioUrl = URL.createObjectURL(blob);
             }
@@ -708,52 +584,28 @@ const App: React.FC = () => {
         if (ttsProvider === 'gemini') {
             audioUrl = await generateSpeech(textToRead, selectedGeminiVoice, geminiApiKey, speechSpeed);
         } else {
+             // For regeneration, we just pick a random key to distribute load
              if (elevenLabsKeys.length === 0) throw new Error("No ElevenLabs keys");
              
-             // Only pass proxyKey if enabled
-             const effectiveProxyKey = isProxyEnabled ? proxyKey : undefined;
-
              let success = false;
-             
-             // Try ALL keys sequentially starting from a random index
-             const startIdx = Math.floor(Math.random() * elevenLabsKeys.length);
              let attempts = 0;
-             let lastError: Error | null = null;
-             
-             while(!success && attempts < elevenLabsKeys.length) {
-                const currentIdx = (startIdx + attempts) % elevenLabsKeys.length;
-                const keyToUse = elevenLabsKeys[currentIdx];
-                
+             // Simple retry logic up to 3 times with different keys
+             while(!success && attempts < Math.min(3, elevenLabsKeys.length)) {
+                const randomKeyIdx = Math.floor(Math.random() * elevenLabsKeys.length);
+                const keyToUse = elevenLabsKeys[randomKeyIdx];
                 try {
-                    console.log(`Regenerating with Key index: ${currentIdx}`);
-                    speechBytes = await generateElevenLabsSpeechBytes(
-                        text, 
-                        selectedElevenLabsVoice, 
-                        selectedElevenLabsModel, 
-                        keyToUse, 
-                        langCode, 
-                        undefined, 
-                        elevenLabsSettings, 
-                        speechSpeed, 
-                        effectiveProxyKey,
-                        proxyISP,
-                        proxyLocation
-                    );
+                    speechBytes = await generateElevenLabsSpeechBytes(text, selectedElevenLabsVoice, selectedElevenLabsModel, keyToUse, langCode, undefined, elevenLabsSettings, speechSpeed, proxyKey);
                      if (speechBytes && speechBytes.length > 0) {
                         success = true;
                     } else {
                         throw new Error("Empty bytes");
                     }
-                } catch(e: any) {
-                    console.warn(`Key ${currentIdx} failed regeneration:`, e);
-                    lastError = e;
+                } catch(e) {
                     attempts++;
                 }
              }
              
-             if (!success || speechBytes.length === 0) {
-                 throw new Error(lastError?.message || "Đã thử tất cả các Key nhưng đều thất bại.");
-             }
+             if (!success || speechBytes.length === 0) throw new Error("Failed to regenerate audio");
              
              const blob = createWavBlob(speechBytes);
              if (blob.size <= 44) throw new Error("Generated audio is empty");
@@ -836,7 +688,7 @@ const App: React.FC = () => {
         <div className="flex-1"></div>
         <div className="text-center flex-grow">
           <h1 className="text-2xl md:text-3xl font-bold text-center text-[--color-primary-400] transition-colors">
-            TTS tool by StudyAI86
+            Chuyển đổi Tệp Văn bản sang Giọng nói
           </h1>
           <p className="text-center text-slate-400 mt-1">Cung cấp bởi Gemini & ElevenLabs</p>
         </div>
@@ -1353,10 +1205,7 @@ const App: React.FC = () => {
         geminiApiKey={geminiApiKey}
         onGeminiConfigChange={saveGeminiConfig}
         proxyKey={proxyKey}
-        proxyISP={proxyISP}
-        proxyLocation={proxyLocation}
-        onProxyConfigChange={saveProxyConfig}
-        isProxyEnabled={isProxyEnabled}
+        onProxyKeyChange={saveProxyConfig}
       />
     </div>
   );

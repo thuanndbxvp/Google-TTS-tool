@@ -315,7 +315,8 @@ export async function generateElevenLabsSpeechBytes(
   speed: number = 1.0,
   proxyKey?: string,
   proxyISP: string = 'Random',
-  proxyLocation: string = '0'
+  proxyLocation: string = '0',
+  retryCount: number = 0 // Tham số mới để đếm số lần thử lại
 ): Promise<Uint8Array> {
   if (!apiKey) throw new Error("ElevenLabs API Key is required");
   if (!text.trim()) return new Uint8Array(0);
@@ -389,12 +390,30 @@ export async function generateElevenLabsSpeechBytes(
         }
 
         if (errorMessage.includes("Unusual activity detected")) {
+             // LOGIC AUTO-RETRY NẾU GẶP LỖI UNUSUAL ACTIVITY (IP BLOCKED)
+             if (proxyKey && retryCount < 3) {
+                 console.warn(`[ElevenLabs] Unusual activity detected (IP Blocked). Retrying with new Proxy... Attempt ${retryCount + 1}/3`);
+                 
+                 // 1. Xóa cache ngay lập tức để buộc lấy IP mới
+                 saveProxyToCache(proxyKey, {proxy: '', publicIp: ''}, 0);
+                 
+                 // 2. Chờ 1 giây để an toàn
+                 await new Promise(r => setTimeout(r, 1000));
+
+                 // 3. Gọi đệ quy thử lại
+                 return await generateElevenLabsSpeechBytes(
+                    text, voiceId, modelId, apiKey, languageCode, baseUrl, settings, speed, 
+                    proxyKey, proxyISP, proxyLocation, 
+                    retryCount + 1
+                 );
+             }
+
             let msg = "Lỗi 11Labs: Unusual activity detected.";
             if (!proxyKey) {
                 msg += " Bạn cần bật Proxy Xoay để đổi IP.";
             } else {
-                msg += " IP Proxy hiện tại đã bị chặn. Hệ thống sẽ tự động thử IP mới ở lần sau.";
-                // Xóa cache của key này để lần sau bắt buộc lấy IP mới
+                msg += " IP Proxy hiện tại đã bị chặn. Đã thử đổi IP tự động nhưng không thành công (Vui lòng thử lại hoặc đổi Key khác).";
+                // Vẫn xóa cache để lần bấm nút sau sẽ có IP mới
                 saveProxyToCache(proxyKey, {proxy: '', publicIp: ''}, 0);
             }
             errorMessage = msg;

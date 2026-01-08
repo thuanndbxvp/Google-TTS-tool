@@ -5,9 +5,16 @@ import { decodeAudioDataToPcm } from "../utils/audioUtils";
 const DEFAULT_API_BASE = "https://api.elevenlabs.io/v1";
 const RELAY_URL = "https://gomhuongcanh.vn/ai_studio_code.php";
 
-// Cache for Proxy
-let currentProxy: string | null = null;
-let proxyExpiry: number = 0; // Timestamp
+// Initialize Cache from LocalStorage if available
+let currentProxy: string | null = localStorage.getItem('tts_cached_proxy');
+let proxyExpiry: number = parseInt(localStorage.getItem('tts_proxy_expiry') || '0');
+
+function saveProxyToCache(proxy: string, expiry: number) {
+    currentProxy = proxy;
+    proxyExpiry = expiry;
+    localStorage.setItem('tts_cached_proxy', proxy);
+    localStorage.setItem('tts_proxy_expiry', expiry.toString());
+}
 
 export async function fetchElevenLabsVoices(apiKey: string, baseUrl: string = DEFAULT_API_BASE): Promise<ElevenLabsVoice[]> {
   if (!apiKey) throw new Error("ElevenLabs API Key is required");
@@ -65,37 +72,13 @@ export async function fetchElevenLabsModels(apiKey: string, baseUrl: string = DE
  * Xử lý dữ liệu trả về từ API ProxyXoay
  */
 function handleProxyResponse(data: any): string {
-    // Kiểm tra thông báo lỗi cụ thể về thời gian chờ
     const rawMsg = data.msg || data.message || '';
     
-    // LOGIC FIX: Nếu server báo đợi (Cooldown)
-    if (typeof rawMsg === 'string') {
-        const waitMatch = rawMsg.match(/Con (\d+)s moi co the doi proxy/i);
-        if (waitMatch) {
-            // NẾU ĐÃ CÓ PROXY TRONG CACHE -> DÙNG LẠI (IP Thật không đổi, nhưng vẫn kết nối được)
-            if (currentProxy) {
-                console.warn(`Proxy rotation cooldown (${waitMatch[1]}s). Reusing cached proxy to maintain 'Real IP' session.`);
-                // Gia hạn thời gian cache thêm 1 chút để tránh spam request
-                proxyExpiry = Date.now() + (parseInt(waitMatch[1]) * 1000); 
-                return currentProxy;
-            }
-            
-            // Nếu không có cache mà bị bắt đợi -> Buộc phải báo lỗi
-            const seconds = waitMatch[1];
-            throw new Error(`Proxy chưa sẵn sàng đổi IP. Vui lòng đợi ${seconds} giây nữa rồi thử lại.`);
-        }
-    }
-
-    // API ProxyXoay thường trả về status: 100 nếu thành công
-    // Nếu status != 100, tức là có lỗi (sai key, hết hạn, quá tần suất)
-    if (data.status && data.status !== 100) {
-        throw new Error(`Lỗi ProxyXoay: ${rawMsg || 'Key không hợp lệ hoặc hết hạn'}`);
-    }
-
+    // Ưu tiên 1: Nếu server trả về proxyhttp, lấy luôn bất kể msg là gì
+    // Vì đôi khi server báo "Chưa đến giờ đổi" nhưng vẫn trả về proxy cũ (hoặc proxy hiện tại)
     if (data.proxyhttp) {
-        currentProxy = data.proxyhttp;
-        const now = Date.now();
-        
+        let newExpiry = Date.now() + 10 * 60 * 1000; // Mặc định 10p
+
         // Parse ngày hết hạn nếu có
         const dateStr = data["Token expiration date"]; 
         if (dateStr) {
@@ -111,43 +94,60 @@ function handleProxyResponse(data: any): string {
                     parseInt(timeParts[0]), 
                     parseInt(timeParts[1])
                 );
-                proxyExpiry = expiryDate.getTime();
+                newExpiry = expiryDate.getTime();
             } catch (e) {
-                 proxyExpiry = now + 10 * 60 * 1000; // Fallback 10p
+                 // Ignore parse error
             }
-        } else {
-            // Fallback: 10 phút
-            proxyExpiry = now + 10 * 60 * 1000;
         }
-        console.log("New Proxy Acquired:", currentProxy);
+        
+        saveProxyToCache(data.proxyhttp, newExpiry);
+        console.log("Proxy Acquired (Refresh/New):", currentProxy);
         return currentProxy as string;
-    } else {
-        // Trường hợp API trả về JSON nhưng không có proxyhttp (lỗi lạ)
-        throw new Error(JSON.stringify(data));
     }
+
+    // Ưu tiên 2: Nếu không có proxyhttp mới, nhưng server báo Cooldown -> Dùng lại Cache cũ
+    if (typeof rawMsg === 'string') {
+        const waitMatch = rawMsg.match(/Con (\d+)s moi co the doi proxy/i);
+        if (waitMatch) {
+            if (currentProxy) {
+                console.warn(`Proxy rotation cooldown (${waitMatch[1]}s). Reusing cached proxy from LocalStorage.`);
+                // Update expiry ảo để tránh request lại ngay lập tức
+                const newExpiry = Date.now() + (parseInt(waitMatch[1]) * 1000) + 5000; 
+                saveProxyToCache(currentProxy, newExpiry);
+                return currentProxy;
+            }
+            
+            // Không có cache mà bị cooldown -> Lỗi
+            const seconds = waitMatch[1];
+            throw new Error(`Proxy chưa sẵn sàng đổi IP (cần đợi ${seconds}s) và không tìm thấy IP cũ.`);
+        }
+    }
+
+    // API ProxyXoay trả về lỗi khác
+    if (data.status && data.status !== 100) {
+        throw new Error(`Lỗi ProxyXoay: ${rawMsg || 'Key không hợp lệ hoặc hết hạn'}`);
+    }
+
+    throw new Error(`Dữ liệu Proxy không hợp lệ: ${JSON.stringify(data)}`);
 }
 
 /**
  * Lấy Proxy từ proxyxoay.shop thông qua Relay Server
- * Tuyệt đối không gọi trực tiếp từ trình duyệt để tránh CORS
  */
 async function getProxyXoay(keyXoay: string, isp: string = 'Random', locationId: string = '0'): Promise<string> {
     const now = Date.now();
     
-    // Nếu đã có proxy và chưa hết hạn, dùng lại (trừ đi 30s để an toàn)
-    if (currentProxy && now < proxyExpiry - 30000) {
-        console.log("Using Cached Proxy:", currentProxy);
+    // Nếu đã có proxy và chưa hết hạn, dùng lại (trừ đi 10s để an toàn)
+    if (currentProxy && now < proxyExpiry - 10000) {
+        console.log("Using Cached Proxy (Valid):", currentProxy);
         return currentProxy;
     }
 
     // Gọi qua Relay Server
-    // Thêm timestamp `t` để tránh browser cache response cũ
-    // Thêm param `nhamang` và `tinhthanh`
     const relayUrl = `${RELAY_URL}?action=get_proxy&key=${keyXoay}&nhamang=${encodeURIComponent(isp)}&tinhthanh=${locationId}&t=${now}`;
     
     try {
         console.log("Fetching proxy via Relay:", relayUrl);
-        // Đơn giản hóa request để tránh CORS Preflight (OPTIONS)
         const res = await fetch(relayUrl);
         
         if (!res.ok) {
@@ -156,12 +156,10 @@ async function getProxyXoay(keyXoay: string, isp: string = 'Random', locationId:
 
         const text = await res.text();
         
-        // Cố gắng parse JSON
         let data;
         try {
             data = JSON.parse(text);
         } catch (e) {
-            // Nếu server trả về HTML lỗi hoặc text thường
             console.error("Relay returned non-JSON:", text);
             throw new Error(`Server trả về dữ liệu không hợp lệ: ${text.substring(0, 50)}...`);
         }
@@ -171,14 +169,14 @@ async function getProxyXoay(keyXoay: string, isp: string = 'Random', locationId:
     } catch (e: any) {
         console.error("Proxy Fetch Error:", e);
         
-        // LOGIC FIX: Nếu lỗi mạng khi fetch proxy mới, nhưng ta vẫn còn cache cũ (dù có thể hết hạn logic), hãy cố dùng lại nó
+        // Fallback: Nếu lỗi mạng/server nhưng vẫn còn proxy cũ trong storage -> Dùng tạm
         if (currentProxy) {
             console.warn("Error fetching new proxy, using cached proxy as fallback:", e.message);
+            // Gia hạn tạm 30s để tránh spam lỗi
+            saveProxyToCache(currentProxy, Date.now() + 30000);
             return currentProxy;
         }
 
-        // Reset cache nếu lỗi hoàn toàn
-        currentProxy = null;
         let msg = e.message;
         if (msg === 'Failed to fetch') {
             msg = 'Lỗi kết nối (CORS/Network). Vui lòng kiểm tra lại file PHP trên server gomhuongcanh.vn.';
@@ -192,11 +190,7 @@ async function getProxyXoay(keyXoay: string, isp: string = 'Random', locationId:
  */
 export async function verifyProxyConnection(proxyKey: string, apiKey: string, isp: string = 'Random', locationId: string = '0'): Promise<{ myIp: string, proxyIp: string, success: boolean, message: string }> {
     try {
-        // LOGIC FIX: Không xóa currentProxy = null ở đây nữa.
-        // Hãy để getProxyXoay tự quyết định xem có cần lấy mới không.
-        // Nếu đang bị cooldown, getProxyXoay sẽ trả về proxy cũ -> Check vẫn OK.
-        
-        // 1. Lấy IP gốc của người dùng
+        // 1. Lấy IP gốc
         let myIp = "Unknown";
         try {
             const ipRes = await fetch('https://api.ipify.org?format=json');
@@ -206,13 +200,15 @@ export async function verifyProxyConnection(proxyKey: string, apiKey: string, is
             console.warn("Could not fetch user IP", e);
         }
 
-        // 2. Lấy Proxy String (để xem IP đại diện)
-        // Hàm này giờ đã an toàn CORS nhờ qua Relay
+        // 2. Lấy Proxy String
+        // Lưu ý: Nếu user muốn force check IP mới, ta có thể cần cơ chế force reset cache.
+        // Tuy nhiên, với logic hiện tại, ta sẽ tôn trọng cache để tránh lỗi Cooldown.
+        // Nếu muốn force, người dùng phải đợi hết hạn hoặc đổi Key.
+        // Để "Kiểm tra IP" hiển thị đúng trạng thái hiện tại, ta chỉ gọi getProxyXoay.
         const proxyString = await getProxyXoay(proxyKey, isp, locationId);
-        // proxyString format: IP:PORT:USER:PASS hoặc IP:PORT
         const proxyIp = proxyString.split(':')[0];
 
-        // 3. Thử gọi đến 11Labs thông qua Relay + Proxy để chắc chắn kết nối OK
+        // 3. Thử gọi đến 11Labs
         const response = await fetch(`${RELAY_URL}/models`, {
             method: 'GET',
             headers: {
@@ -226,11 +222,11 @@ export async function verifyProxyConnection(proxyKey: string, apiKey: string, is
                 myIp,
                 proxyIp,
                 success: true,
-                message: "Kết nối thành công tới ElevenLabs qua Proxy!"
+                message: "Kết nối thành công!"
             };
         } else {
              const errText = await response.text();
-             let msg = `Lỗi kết nối 11Labs: ${errText.substring(0, 100)}`;
+             let msg = `Lỗi 11Labs: ${errText.substring(0, 100)}`;
              try {
                  const errJson = JSON.parse(errText);
                  if(errJson.detail && errJson.detail.message) msg = `Lỗi 11Labs: ${errJson.detail.message}`;
@@ -260,7 +256,7 @@ export async function generateElevenLabsSpeechBytes(
   modelId: string,
   apiKey: string,
   languageCode?: string,
-  baseUrl: string = DEFAULT_API_BASE, // Tham số này vẫn giữ để tương thích ngược, nhưng sẽ bị ghi đè nếu có proxyKey
+  baseUrl: string = DEFAULT_API_BASE,
   settings?: ElevenLabsSettings,
   speed: number = 1.0,
   proxyKey?: string,
@@ -270,13 +266,9 @@ export async function generateElevenLabsSpeechBytes(
   if (!apiKey) throw new Error("ElevenLabs API Key is required");
   if (!text.trim()) return new Uint8Array(0);
 
-  // LOGIC QUAN TRỌNG:
-  // Nếu có proxyKey -> BẮT BUỘC dùng Relay URL đã gắn cứng.
-  // Nếu không có proxyKey -> Dùng baseUrl truyền vào (mặc định là api.elevenlabs.io)
   let targetBaseUrl = proxyKey ? RELAY_URL : baseUrl;
   let cleanBaseUrl = targetBaseUrl.replace(/\/$/, "");
 
-  // Logic xử lý Proxy
   let proxyUrl = "";
   if (proxyKey) {
       try {
@@ -309,10 +301,7 @@ export async function generateElevenLabsSpeechBytes(
   };
 
   if (proxyUrl) {
-      // Gửi header cho Relay Script xử lý
       headers["X-Proxy-Url"] = proxyUrl;
-      // Không gửi header X-Forwarded-For vì nó thường gây lỗi CORS Preflight hoặc bị chặn bởi WAF
-      // headers["X-Forwarded-For"] = proxyUrl.split(":")[0]; 
       console.log(`Requesting via Relay: ${cleanBaseUrl} with Proxy: ${proxyUrl.split(':')[0]}...`);
   }
 
@@ -324,7 +313,6 @@ export async function generateElevenLabsSpeechBytes(
         body: JSON.stringify(body),
       });
   } catch (e: any) {
-      // Bắt lỗi Network error / CORS "Failed to fetch"
       if (e.message === 'Failed to fetch') {
            throw new Error("Không thể kết nối tới Server Trung Gian. Vui lòng kiểm tra lại Proxy hoặc thử tắt Proxy nếu server hỗ trợ.");
       }
@@ -352,7 +340,8 @@ export async function generateElevenLabsSpeechBytes(
                 msg += " Bạn chưa bật Key Proxy Xoay. Hãy nhập Key Xoay trong cài đặt để đổi IP.";
             } else {
                 msg += " IP Proxy hiện tại có thể đã bị chặn, thử chạy lại để lấy IP mới.";
-                currentProxy = null; // Reset cache
+                // Invalidate cache if 11Labs blocks the current IP
+                saveProxyToCache('', 0); 
             }
             errorMessage = msg;
         }
